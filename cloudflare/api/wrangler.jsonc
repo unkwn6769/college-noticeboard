@@ -15,7 +15,10 @@
 		"GOOGLE_DRIVE_HTTP2": "false",
 		"NODE_ENV": "production",
 		"GITHUB_REPOSITORY": "unkwn6769/college-noticeboard",
-		"MIGRATION_GITHUB_WORKFLOW": "migrations.yml"
+		"MIGRATION_GITHUB_WORKFLOW": "migrations.yml",
+		"MIGRATION_MIN_WORKERS": "8",
+		"MIGRATION_MAX_WORKERS": "64",
+		"MIGRATION_DRIVE_OPERATION_TIMEOUT_MS": "120000"
 	},
 	"hyperdrive": [
 		{

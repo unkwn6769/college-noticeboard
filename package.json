@@ -15,7 +15,8 @@
     "dev:all": "bash scripts/dev-all.sh",
     "deploy:cloudflare": "./scripts/deploy-cloudflare.sh",
     "db:migrate": "node scripts/db-migrate.js",
-    "migration:run": "node scripts/run-migration-executor.js"
+    "migration:run": "node scripts/run-migration-executor.js",
+    "migration:benchmark": "node scripts/migration-concurrency-benchmark.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

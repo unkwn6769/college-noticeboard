@@ -1076,14 +1076,8 @@ function AdminAccounts() {
                     </div>
                   </div>
 
-                  <div className="text-left text-lg font-bold text-slate-950 sm:text-right">
-                    {formatBytes(
-                      migration.live.completedFile.bytesTransferred
-                    )}{" "}
-                    /{" "}
-                    {formatBytes(
-                      migration.live.completedFile.sizeBytes
-                    )}
+                  <div className="text-left text-sm font-semibold text-slate-700 sm:text-right">
+                    Server-side copy completed
                   </div>
                 </div>
               </div>
@@ -1136,95 +1130,31 @@ function AdminAccounts() {
                             Copying in Google Drive…
                           </div>
                         ) : (
-                          <>
-                            <div className="text-lg font-bold text-slate-950">
-                              {formatBytes(
-                                migration.live.currentFile
-                                  .bytesTransferred
-                              )}{" "}
-                              /{" "}
-                              {formatBytes(
-                                migration.live.currentFile
-                                  .sizeBytes
-                              )}
-                            </div>
-
-                            <div className="mt-1 text-xs text-slate-500">
-                              {formatSpeed(
-                                migration.live.currentFile
-                                  .speedBytesPerSecond
-                              )}
-                            </div>
-                          </>
+                          <div className="text-sm font-semibold text-slate-700">
+                            Processing item…
+                          </div>
                         )}
                       </div>
                     </div>
 
-                    {!migration.live.currentFile.copyInProgress && (
-                      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
-                        <div
-                          className="h-full rounded-full bg-slate-900 transition-all duration-300"
-                          style={{
-                            width: `${
-                              Number(
-                                migration.live.currentFile
-                                  .sizeBytes ?? 0
-                              ) > 0
-                                ? Math.min(
-                                    100,
-                                    (
-                                      Number(
-                                        migration.live
-                                          .currentFile
-                                          .bytesTransferred ??
-                                          0
-                                      ) /
-                                        Number(
-                                          migration.live
-                                            .currentFile
-                                            .sizeBytes ??
-                                            0
-                                        )
-                                    ) *
-                                      100
-                                  )
-                                : 0
-                            }%`,
-                          }}
-                        />
-                      </div>
-                    )}
-
                     <div className="mt-4 grid gap-4 sm:grid-cols-3">
                       <div>
                         <div className="text-xs text-slate-400">
-                          {migrationIsCompleted
-                            ? "Average speed"
-                            : "Live speed"}
+                          Item state
                         </div>
 
                         <div className="mt-1 text-sm font-semibold text-slate-950">
-                          {migration.live.currentFile.copyInProgress
-                            ? "—"
-                            : formatSpeed(
-                                migration.live.currentFile
-                                  .speedBytesPerSecond
-                              )}
+                          {migration.live.currentFile.phase || "processing"}
                         </div>
                       </div>
 
                       <div>
                         <div className="text-xs text-slate-400">
-                          File ETA
+                          Item latency
                         </div>
 
                         <div className="mt-1 text-sm font-semibold text-slate-950">
-                          {migration.live.currentFile.copyInProgress
-                            ? "—"
-                            : formatDuration(
-                                migration.live.currentFile
-                                  .etaSeconds
-                              )}
+                          {formatDuration(migration.live.currentFile.elapsedSeconds)}
                         </div>
                       </div>
 
@@ -1274,45 +1204,23 @@ function AdminAccounts() {
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-xl bg-slate-50 p-4">
                     <div className="text-xs text-slate-400">
-                      Data transferred
+                      Active workers
                     </div>
 
                     <div className="mt-1 text-sm font-semibold text-slate-950">
-                      {formatBytes(
-                        migration.live
-                          .transferredBytes
-                      )}{" "}
-                      /{" "}
-                      {formatBytes(
-                        migration.live.totalBytes
-                      )}
+                      {migration.live.activeWorkers ?? 0}
                     </div>
                   </div>
 
                   <div className="rounded-xl bg-slate-50 p-4">
                     <div className="text-xs text-slate-400">
-                      Live speed
+                      Items / second
                     </div>
 
                     <div className="mt-1 text-sm font-semibold text-slate-950">
-                      {formatSpeed(
-                        migration.live
-                          .overallSpeedBytesPerSecond
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl bg-slate-50 p-4">
-                    <div className="text-xs text-slate-400">
-                      Total ETA
-                    </div>
-
-                    <div className="mt-1 text-sm font-semibold text-slate-950">
-                      {migrationIsCompleted
-                        ? "Completed / 0s"
-                        : formatDuration(
-                            migration.live.totalEtaSeconds
-                          )}
+                      {migration.live.itemsPerSecond
+                        ? migration.live.itemsPerSecond.toFixed(2)
+                        : "—"}
                     </div>
                   </div>
 

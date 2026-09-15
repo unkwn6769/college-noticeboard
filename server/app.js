@@ -2562,12 +2562,6 @@ app.get(
       }
 
       const row = result.rows[0];
-      const totalBytes =
-        BigInt(row.total_bytes ?? 0);
-
-      const transferredBytes =
-        BigInt(row.transferred_bytes ?? 0);
-
       const migrationStartedAt =
         row.started_at
           ? new Date(row.started_at)
@@ -2588,41 +2582,6 @@ app.get(
           )
           : 0;
 
-      const historicalAverageSpeedBytesPerSecond =
-        migrationElapsedSeconds > 0
-          ? Number(transferredBytes) /
-          migrationElapsedSeconds
-          : 0;
-
-      const activeSpeedBytesPerSecond = Number(
-        row.active_speed_bytes_per_second ?? 0
-      );
-
-      const overallSpeedBytesPerSecond =
-        row.status === "running" && activeSpeedBytesPerSecond > 0
-          ? activeSpeedBytesPerSecond
-          : historicalAverageSpeedBytesPerSecond;
-
-      const remainingBytes =
-        totalBytes > transferredBytes
-          ? totalBytes - transferredBytes
-          : 0n;
-
-      const totalEtaSeconds =
-        row.status === "completed"
-          ? 0
-          : (
-              row.status === "running" ||
-              row.status === "pending"
-            ) &&
-            overallSpeedBytesPerSecond > 0
-            ? Number(remainingBytes) /
-              overallSpeedBytesPerSecond
-            : null;
-
-      const currentFileBytes =
-        BigInt(row.current_file_bytes ?? 0);
-
       const currentFileSize =
         BigInt(row.current_file_size ?? 0);
 
@@ -2640,30 +2599,6 @@ app.get(
             1000
           )
           : 0;
-
-      const currentFileSpeedBytesPerSecond =
-        row.current_file_phase === "verifying"
-          ? 0
-          : Number(row.current_file_speed_bytes_per_second ?? 0) > 0
-          ? Number(row.current_file_speed_bytes_per_second)
-          : currentFileElapsedSeconds > 0
-            ? Number(currentFileBytes) / currentFileElapsedSeconds
-            : 0;
-
-      const currentFileRemainingBytes =
-        currentFileSize > currentFileBytes
-          ? currentFileSize -
-          currentFileBytes
-          : 0n;
-
-      const currentFileEtaSeconds =
-        row.current_file_phase !== "verifying" &&
-        currentFileSpeedBytesPerSecond > 0
-          ? Number(
-            currentFileRemainingBytes
-          ) /
-          currentFileSpeedBytesPerSecond
-          : null;
 
       const totalFiles = Number(
         row.total_files
@@ -2693,23 +2628,9 @@ app.get(
         row.failed_items
       );
 
-      const progress =
-        totalBytes > 0n
-          ? Math.min(
-              100,
-              Math.floor(
-                (Number(transferredBytes) /
-                  Number(totalBytes)) *
-                  100
-              )
-            )
-          : totalFiles > 0
-            ? Math.floor(
-                (transferredFiles /
-                  totalFiles) *
-                  100
-              )
-            : 0;
+      const progress = totalFiles > 0
+        ? Math.floor((transferredFiles / totalFiles) * 100)
+        : 0;
 
       return res.json({
         migration: {
@@ -2775,23 +2696,40 @@ app.get(
             row.updated_at,
 
           live: {
-            totalBytes:
-              totalBytes.toString(),
+            totalBytes: null,
 
-            transferredBytes:
-              transferredBytes.toString(),
-
-            overallSpeedBytesPerSecond:
-              overallSpeedBytesPerSecond,
-
-            activeSpeedBytesPerSecond:
-              activeSpeedBytesPerSecond,
-
-            totalEtaSeconds:
-              totalEtaSeconds,
+            transferredBytes: null,
+            overallSpeedBytesPerSecond: null,
+            activeSpeedBytesPerSecond: null,
+            totalEtaSeconds: null,
+            activeWorkers: runningFiles,
+            itemsPerSecond:
+              migrationElapsedSeconds > 0
+                ? transferredFiles / migrationElapsedSeconds
+                : null,
 
             migrationElapsedSeconds:
               migrationElapsedSeconds,
+            executionDurationSeconds:
+              migrationElapsedSeconds,
+            totalDurationSeconds:
+              row.created_at
+                ? Math.max(
+                    0,
+                    ((migrationEndedAt.getTime() -
+                      new Date(row.created_at).getTime()) /
+                      1000),
+                  )
+                : migrationElapsedSeconds,
+            dispatchDelaySeconds:
+              row.started_at && row.created_at
+                ? Math.max(
+                    0,
+                    ((new Date(row.started_at).getTime() -
+                      new Date(row.created_at).getTime()) /
+                      1000),
+                  )
+                : null,
 
             currentFile: row.current_item_id
               ? {
@@ -2802,17 +2740,10 @@ app.get(
               phase: row.current_file_phase,
               telemetryMode: row.current_file_telemetry_mode,
 
-              sizeBytes:
-                currentFileSize.toString(),
-
-              bytesTransferred:
-                currentFileBytes.toString(),
-
-              speedBytesPerSecond:
-                currentFileSpeedBytesPerSecond,
-
-              etaSeconds:
-                currentFileEtaSeconds,
+              sizeBytes: currentFileSize.toString(),
+              bytesTransferred: null,
+              speedBytesPerSecond: null,
+              etaSeconds: null,
 
               elapsedSeconds:
                 currentFileElapsedSeconds,
@@ -2836,7 +2767,7 @@ app.get(
                   id: row.completed_item_id,
                   name: row.completed_file_name,
                   sizeBytes: String(row.completed_file_size ?? 0),
-                  bytesTransferred: String(row.completed_file_bytes ?? 0),
+                  bytesTransferred: null,
                   targetFileId: row.completed_target_file_id,
                   targetAccountId: row.completed_target_account_id,
                   status: "completed",

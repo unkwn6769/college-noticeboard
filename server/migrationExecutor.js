@@ -8,8 +8,8 @@ import {
 } from "./migrationWorker.js";
 import { pool } from "./db/database.js";
 
-const DEFAULT_MIN_WORKERS = 4;
-const DEFAULT_MAX_WORKERS = 32;
+const DEFAULT_MIN_WORKERS = 8;
+const DEFAULT_MAX_WORKERS = 64;
 const DEFAULT_HEARTBEAT_MS = 15_000;
 const DEFAULT_MAX_ITEMS_PER_RUN = 0;
 const HEALTHY_SAMPLE_WINDOW = 12;
@@ -120,6 +120,9 @@ export async function runMigrationExecutor({
       completedItems,
       healthySamples,
       ewmaLatencyMs: Math.round(ewmaLatencyMs),
+      activeWorkers: workerCount,
+      itemsPerSecond: ((completedItems / Math.max(1, Date.now() - startedAt)) * 1000),
+      executionDurationMs: Date.now() - startedAt,
     }).catch((error) => console.error("[MIGRATION EXECUTOR] Heartbeat failed:", error));
   }, DEFAULT_HEARTBEAT_MS);
   heartbeat.unref?.();
@@ -130,18 +133,34 @@ export async function runMigrationExecutor({
     return summary;
   };
 
-  const runOne = async () => {
+  const runOne = async (workerNumber) => {
     const itemStartedAt = Date.now();
     try {
-      return await migrateOneItem(migrationId, undefined, workerCount);
+      return await migrateOneItem(migrationId, workerNumber, workerCount);
     } finally {
       const latency = Date.now() - itemStartedAt;
       ewmaLatencyMs = ewmaLatencyMs === 0 ? latency : (ewmaLatencyMs * 0.8) + (latency * 0.2);
-      await refreshCompletedCount();
     }
   };
 
   try {
+    const activeWorkers = new Map();
+    let workerSequence = 0;
+    let idleWorkers = 0;
+    let lastSummary = null;
+
+    const launchWorker = () => {
+      if (stopping || completedItems >= maxItems || activeWorkers.size >= workerCount) {
+        return false;
+      }
+      const workerNumber = ++workerSequence;
+      const promise = runOne(workerNumber)
+        .then((result) => ({ workerNumber, result }))
+        .catch((error) => ({ workerNumber, error }));
+      activeWorkers.set(workerNumber, promise);
+      return true;
+    };
+
     while (!stopping && completedItems < maxItems) {
       const before = await getMigrationStatus(migrationId);
       if (!before) throw new Error("Migration not found");
@@ -158,37 +177,43 @@ export async function runMigrationExecutor({
       await refreshCompletedCount();
       if (before.status === "running" && completedItems >= maxItems) break;
 
-      const cleanupIds = await getDueCleanupItemIds(migrationId, workerCount);
-      if (cleanupIds.length) {
-        const cleanupResults = await Promise.allSettled(
-          cleanupIds.map(async (itemId) => retryFailedSourceDeletion(itemId)),
-        );
-        const cleanupFailures = cleanupResults.filter((r) => r.status === "rejected").length;
-        if (cleanupFailures === 0 && cleanupIds.length >= workerCount) {
-          healthySamples++;
-        }
+      while (activeWorkers.size < workerCount && completedItems < maxItems) {
+        launchWorker();
       }
 
-      const active = Math.min(workerCount, Math.max(1, maxItems - completedItems));
-      const batch = await Promise.all(
-        Array.from({ length: active }, async () => {
-          if (stopping) return null;
-          return runOne();
-        }),
-      );
+      if (activeWorkers.size === 0) {
+        lastSummary = await refreshCompletedCount();
+        if (Number(lastSummary?.pending_items ?? 0) === 0 &&
+            Number(lastSummary?.running_items ?? 0) === 0) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
 
-      const usable = batch.filter(Boolean);
-      if (usable.length === 0) break;
+      const completedWorker = await Promise.race(activeWorkers.values());
+      activeWorkers.delete(completedWorker.workerNumber);
 
-      const pressure = usable.some((item) => isThrottleLike(item));
-      const transient = usable.filter((item) => ["retrying", "reconciling", "waiting_for_storage", "deferred_storage"].includes(item?.status));
-      const allIdle = usable.every((item) => item.message === "No pending migration items");
+      if (completedWorker.error) {
+        console.error(
+          `[MIGRATION EXECUTOR] Worker ${completedWorker.workerNumber} failed:`,
+          completedWorker.error instanceof Error
+            ? completedWorker.error.message
+            : completedWorker.error,
+        );
+        idleWorkers = 0;
+      } else if (completedWorker.result?.message === "No pending migration items") {
+        idleWorkers += 1;
+      } else {
+        idleWorkers = 0;
+      }
 
-      if (pressure || transient.length > Math.max(1, Math.floor(usable.length / 2))) {
+      const result = completedWorker.result;
+      if (result && isThrottleLike(result)) {
         workerCount = Math.max(minWorkers, Math.floor(workerCount * 0.7));
         healthySamples = 0;
       } else {
-        healthySamples += usable.length;
+        healthySamples += 1;
         if (healthySamples >= HEALTHY_SAMPLE_WINDOW && workerCount < maxWorkers) {
           const latencyPressure = ewmaLatencyMs > 0 && Date.now() - startedAt > 10_000
             ? ewmaLatencyMs
@@ -200,11 +225,18 @@ export async function runMigrationExecutor({
         }
       }
 
-      const summary = await refreshCompletedCount();
-      if (allIdle && (summary?.pending_items === "0" || Number(summary?.pending_items) === 0)) break;
-      if (summary && Number(summary?.completed_items ?? summary?.completed_files ?? 0) >= maxItems) break;
+      lastSummary = await refreshCompletedCount();
+      if (Number(lastSummary?.completed_items ?? lastSummary?.completed_files ?? 0) >= maxItems) break;
+      if (idleWorkers >= Math.max(1, workerCount) &&
+          Number(lastSummary?.pending_items ?? 0) === 0 &&
+          Number(lastSummary?.running_items ?? 0) === 0) {
+        break;
+      }
+
+      launchWorker();
     }
 
+    await Promise.all(activeWorkers.values());
     const summary = await refreshCompletedCount();
     await finishExecutionRun(runId, stopping ? "stopped" : "completed");
     return { migrationId, runId, summary, workerCount, completedItems, stopped: stopping };

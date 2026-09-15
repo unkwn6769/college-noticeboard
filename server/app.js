@@ -2340,8 +2340,11 @@ app.post(
           };
         });
 
-      if (!scheduleRuntimeTask(dispatchPromise)) {
-        await dispatchPromise;
+      const dispatchScheduled = scheduleRuntimeTask(dispatchPromise);
+      let dispatchResult = null;
+
+      if (!dispatchScheduled) {
+        dispatchResult = await dispatchPromise;
       }
 
       return res.status(201).json({
@@ -2407,9 +2410,9 @@ app.post(
           progress: 0,
         },
         execution: {
-          triggered: dispatchResult.triggered,
-          queued: dispatchResult.queued,
-          reason: dispatchResult.reason,
+          triggered: dispatchResult?.triggered ?? false,
+          queued: dispatchResult?.queued ?? true,
+          reason: dispatchResult?.reason ?? "scheduled",
         },
       });
     } catch (error) {

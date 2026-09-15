@@ -67,6 +67,9 @@ The script uploads only these secret values:
 - `DRIVE_ACCOUNT_GOOGLE_CLIENT_ID`
 - `DRIVE_ACCOUNT_GOOGLE_CLIENT_SECRET`
 - `DRIVE_ACCOUNT_GOOGLE_REDIRECT_URI`
+- `GITHUB_TOKEN`
+
+`GITHUB_REPOSITORY` and `MIGRATION_GITHUB_WORKFLOW` are public/runtime configuration values for the migration-dispatch path, while `GITHUB_TOKEN` is the secret used to queue a GitHub Actions migration run immediately after creation.
 
 `DATABASE_URL` is used by local Node execution and GitHub Actions migration runners. The Worker control-plane API uses the Hyperdrive binding to reach Supabase PostgreSQL; Hyperdrive is not part of the migration execution hot path.
 

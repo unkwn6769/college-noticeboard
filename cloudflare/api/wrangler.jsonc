@@ -13,7 +13,9 @@
 		"FRONTEND_URL": "https://college-noticeboard-final-343.pages.dev",
 		"ALLOWED_ORIGINS": "https://college-noticeboard-final-343.pages.dev",
 		"GOOGLE_DRIVE_HTTP2": "false",
-		"NODE_ENV": "production"
+		"NODE_ENV": "production",
+		"GITHUB_REPOSITORY": "unkwn6769/college-noticeboard",
+		"MIGRATION_GITHUB_WORKFLOW": "migrations.yml"
 	},
 	"hyperdrive": [
 		{

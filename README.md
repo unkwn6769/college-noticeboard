@@ -12,4 +12,10 @@ Required GitHub Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `VITE_API_URL`
 
+Required Worker runtime values for immediate migration dispatch:
+
+- `GITHUB_TOKEN` (secret)
+- `GITHUB_REPOSITORY` (public runtime value or env var)
+- `MIGRATION_GITHUB_WORKFLOW` (defaults to `migrations.yml`)
+
 Never commit real secrets.

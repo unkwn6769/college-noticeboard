@@ -124,16 +124,20 @@ export async function runMigrationExecutor({
   }, DEFAULT_HEARTBEAT_MS);
   heartbeat.unref?.();
 
+  const refreshCompletedCount = async () => {
+    const summary = await getMigrationSummary(migrationId);
+    completedItems = Number(summary?.completed_items ?? summary?.completed_files ?? 0);
+    return summary;
+  };
+
   const runOne = async () => {
     const itemStartedAt = Date.now();
-    let result;
     try {
-      result = await migrateOneItem(migrationId, undefined, workerCount);
-      completedItems += result?.status === "completed" || result?.status === "already_handled" ? 1 : 0;
-      return result;
+      return await migrateOneItem(migrationId, undefined, workerCount);
     } finally {
       const latency = Date.now() - itemStartedAt;
       ewmaLatencyMs = ewmaLatencyMs === 0 ? latency : (ewmaLatencyMs * 0.8) + (latency * 0.2);
+      await refreshCompletedCount();
     }
   };
 
@@ -150,6 +154,9 @@ export async function runMigrationExecutor({
       if (["completed", "failed", "cancelled"].includes(before.status)) {
         break;
       }
+
+      await refreshCompletedCount();
+      if (before.status === "running" && completedItems >= maxItems) break;
 
       const cleanupIds = await getDueCleanupItemIds(migrationId, workerCount);
       if (cleanupIds.length) {
@@ -193,13 +200,12 @@ export async function runMigrationExecutor({
         }
       }
 
-      if (allIdle) {
-        const summary = await getMigrationSummary(migrationId);
-        if (summary?.pending_items === "0" || Number(summary?.pending_items) === 0) break;
-      }
+      const summary = await refreshCompletedCount();
+      if (allIdle && (summary?.pending_items === "0" || Number(summary?.pending_items) === 0)) break;
+      if (summary && Number(summary?.completed_items ?? summary?.completed_files ?? 0) >= maxItems) break;
     }
 
-    const summary = await getMigrationSummary(migrationId);
+    const summary = await refreshCompletedCount();
     await finishExecutionRun(runId, stopping ? "stopped" : "completed");
     return { migrationId, runId, summary, workerCount, completedItems, stopped: stopping };
   } catch (error) {

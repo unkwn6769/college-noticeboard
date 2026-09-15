@@ -37,8 +37,115 @@ import {
   getDriveAccountAuthorizationUrl,
   handleDriveAccountCallback,
 } from "./driveAccountOAuth.js";
+import { getRuntimeContext } from "./runtimeContext.js";
 
 const app = express();
+
+function getRuntimeEnvValue(key, fallback = undefined) {
+  const runtime = getRuntimeContext();
+  const fromRuntime = runtime?.env?.[key];
+  if (fromRuntime !== undefined && fromRuntime !== null && String(fromRuntime).trim() !== "") {
+    return fromRuntime;
+  }
+
+  const fromProcess = process.env?.[key];
+  if (fromProcess !== undefined && fromProcess !== null && String(fromProcess).trim() !== "") {
+    return fromProcess;
+  }
+
+  return fallback;
+}
+
+function getGitHubDispatchConfig() {
+  const repo = String(
+    getRuntimeEnvValue("GITHUB_REPOSITORY", "") || ""
+  ).trim();
+
+  const token = [
+    getRuntimeEnvValue("GITHUB_TOKEN"),
+    getRuntimeEnvValue("GH_TOKEN"),
+    getRuntimeEnvValue("GITHUB_PAT"),
+    getRuntimeEnvValue("GH_PAT"),
+  ].find((candidate) => typeof candidate === "string" && candidate.trim());
+
+  const workflowName = String(
+    getRuntimeEnvValue("MIGRATION_GITHUB_WORKFLOW", "migrations.yml") || "migrations.yml"
+  ).trim() || "migrations.yml";
+
+  const ref = String(
+    getRuntimeEnvValue("GITHUB_REF_NAME") ||
+      getRuntimeEnvValue("GITHUB_REF") ||
+      getRuntimeEnvValue("GITHUB_BRANCH") ||
+      getRuntimeEnvValue("DEFAULT_BRANCH") ||
+      "main"
+  ).trim().replace(/^refs\/heads\//, "") || "main";
+
+  return {
+    repo,
+    token: token ? String(token).trim() : null,
+    workflowName,
+    ref,
+  };
+}
+
+async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
+  const config = getGitHubDispatchConfig();
+
+  if (!config.repo || !config.token) {
+    console.warn(
+      "[MIGRATION DISPATCH] GitHub repository/run token is not configured; leaving migration queued for cron fallback"
+    );
+    return {
+      triggered: false,
+      queued: true,
+      reason: "missing_github_dispatch_config",
+    };
+  }
+
+  const normalizedRepo = String(config.repo).trim().replace(/^https?:\/\/github\.com\//i, "");
+  const url = new URL(
+    `https://api.github.com/repos/${normalizedRepo}/actions/workflows/${encodeURIComponent(config.workflowName)}/dispatches`
+  );
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${config.token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ref: config.ref,
+      inputs: {
+        migration_id: String(migrationId),
+        max_items: String(maxItems ?? 0),
+      },
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (response.ok || response.status === 204) {
+    return {
+      triggered: true,
+      queued: false,
+      reason: null,
+    };
+  }
+
+  const responseText = await response.text().catch(() => "");
+  const failureReason = responseText ? `: ${responseText}` : "";
+
+  console.warn(
+    `[MIGRATION DISPATCH] Workflow dispatch for migration ${migrationId} failed with status ${response.status}${failureReason}`
+  );
+
+  return {
+    triggered: false,
+    queued: true,
+    reason: `github_dispatch_failed_${response.status}`,
+  };
+}
 
 const configuredOrigins = String(
   process.env.ALLOWED_ORIGINS || "",
@@ -2058,6 +2165,10 @@ app.post(
         insertMigrationResult
           .rows[0];
 
+      const dispatchResult = await triggerMigrationWorkflow(migration.id, {
+        maxItems: migrationLimit ?? 0,
+      });
+
       return res.status(201).json({
         migration: {
           id: migration.id,
@@ -2119,6 +2230,11 @@ app.post(
           runningFiles: 0,
 
           progress: 0,
+        },
+        execution: {
+          triggered: dispatchResult.triggered,
+          queued: dispatchResult.queued,
+          reason: dispatchResult.reason,
         },
       });
     } catch (error) {

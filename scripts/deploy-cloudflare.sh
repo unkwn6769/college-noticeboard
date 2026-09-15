@@ -77,6 +77,7 @@ keys = [
     "DRIVE_ACCOUNT_GOOGLE_CLIENT_ID",
     "DRIVE_ACCOUNT_GOOGLE_CLIENT_SECRET",
     "DRIVE_ACCOUNT_GOOGLE_REDIRECT_URI",
+    "GITHUB_TOKEN",
 ]
 values = {}
 for raw in Path('.env').read_text().splitlines():

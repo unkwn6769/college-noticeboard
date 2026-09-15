@@ -1280,36 +1280,6 @@ export async function markItemCompleted(
   assertFencedUpdate(result, itemId);
 }
 
-async function incrementCompleted(migrationId) {
-  await pool.query(
-    `
-    UPDATE google_drive_account_migrations
-    SET
-      completed_files = completed_files + 1,
-      updated_at = NOW()
-    WHERE id = $1
-    `,
-    [migrationId]
-  );
-}
-
-async function incrementFailed(
-  migrationId,
-  errorMessage
-) {
-  await pool.query(
-    `
-    UPDATE google_drive_account_migrations
-    SET
-      failed_files = failed_files + 1,
-      error_message = $2,
-      updated_at = NOW()
-    WHERE id = $1
-    `,
-    [migrationId, errorMessage]
-  );
-}
-
 async function updateCurrentFile(
   migrationId,
   fileId
@@ -1330,10 +1300,9 @@ async function finishMigrationIfComplete(
   migrationId
 ) {
   /*
-   * The item rows are the source of truth. Recompute the counters here
-   * instead of relying only on incrementCompleted()/incrementFailed().
-   * That makes completion/failure convergence safe across concurrent workers
-   * and across a crash between item finalization and counter persistence.
+   * Child item rows are authoritative. Recompute the aggregate counters from
+   * the child state on every terminal transition so retries, reconciliation,
+   * and duplicate completion attempts cannot overcount the migration.
    */
   await pool.query(
     `
@@ -1350,8 +1319,11 @@ async function finishMigrationIfComplete(
     )
     UPDATE google_drive_account_migrations m
     SET
-      completed_files = counts.completed_count,
-      failed_files = counts.failed_count + counts.reconciliation_expired_count + counts.ambiguous_count,
+      completed_files = LEAST(counts.completed_count, counts.total_count),
+      failed_files = LEAST(
+        counts.failed_count + counts.reconciliation_expired_count + counts.ambiguous_count,
+        GREATEST(0, counts.total_count - counts.completed_count)
+      ),
       status = CASE
         WHEN counts.total_count > 0
           AND counts.nonterminal_count = 0
@@ -1382,7 +1354,7 @@ async function finishMigrationIfComplete(
       updated_at = NOW()
     FROM counts
     WHERE m.id = $1
-      AND m.status IN ('pending', 'running', 'waiting_for_storage')
+      AND m.status IN ('pending', 'running', 'waiting_for_storage', 'reconciling')
     `,
     [migrationId]
   );
@@ -3432,10 +3404,6 @@ export async function migrateOneItem(
 
     clearRetryCount(item.id, item.lease_generation);
 
-    await incrementCompleted(
-      migrationId
-    );
-
     await finishMigrationIfComplete(
       migrationId
     );
@@ -3508,11 +3476,6 @@ export async function migrateOneItem(
         authMessage
       );
 
-      await incrementFailed(
-        migrationId,
-        authMessage
-      );
-
       await finishMigrationIfComplete(
         migrationId
       );
@@ -3568,11 +3531,6 @@ export async function migrateOneItem(
       await markItemFailed(
         item.id,
         item.lease_generation,
-        permanentMessage
-      );
-
-      await incrementFailed(
-        migrationId,
         permanentMessage
       );
 
@@ -3667,11 +3625,6 @@ export async function migrateOneItem(
     await markItemFailed(
       item.id,
       item.lease_generation,
-      message
-    );
-
-    await incrementFailed(
-      migrationId,
       message
     );
 

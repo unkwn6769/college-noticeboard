@@ -90,15 +90,35 @@ function getGitHubDispatchConfig() {
 
 async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
   const config = getGitHubDispatchConfig();
+  const attemptedAt = new Date().toISOString();
+  const logDispatch = ({ status = null, success, category }) => {
+    console.info(
+      JSON.stringify({
+        event: "migration_workflow_dispatch",
+        migrationId: String(migrationId),
+        attemptedAt,
+        completedAt: new Date().toISOString(),
+        workflow: config.workflowName,
+        repository: config.repo,
+        ref: config.ref,
+        httpStatus: status,
+        success,
+        errorCategory: category,
+      })
+    );
+  };
 
   if (!config.repo || !config.token) {
-    console.warn(
-      "[MIGRATION DISPATCH] GitHub repository/run token is not configured; leaving migration queued for cron fallback"
-    );
+    logDispatch({
+      success: false,
+      category: "missing_dispatch_config",
+    });
     return {
       triggered: false,
       queued: true,
       reason: "missing_github_dispatch_config",
+      attemptedAt,
+      httpStatus: null,
     };
   }
 
@@ -107,43 +127,83 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
     `https://api.github.com/repos/${normalizedRepo}/actions/workflows/${encodeURIComponent(config.workflowName)}/dispatches`
   );
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/vnd.github+json",
-      "Authorization": `Bearer ${String(config.token).trim()}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      ref: config.ref,
-      inputs: {
-        migration_id: String(migrationId),
-        max_items: String(maxItems ?? 0),
+  let response;
+  const dispatchController = new AbortController();
+  const dispatchTimer = setTimeout(() => dispatchController.abort(), 5000);
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "Authorization": `Bearer ${String(config.token).trim()}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
       },
-    }),
-    signal: AbortSignal.timeout(5000),
-  });
+      body: JSON.stringify({
+        ref: config.ref,
+        inputs: {
+          migration_id: String(migrationId),
+          max_items: String(maxItems ?? 0),
+        },
+      }),
+      signal: dispatchController.signal,
+    });
+  } catch (error) {
+    const category = error?.name === "TimeoutError" || error?.name === "AbortError"
+      ? "dispatch_timeout"
+      : "dispatch_request_error";
+    logDispatch({ success: false, category });
+    console.warn(
+      `[MIGRATION DISPATCH] Workflow dispatch request failed for migration ${migrationId}: ${category}`
+    );
+    return {
+      triggered: false,
+      queued: true,
+      reason: category,
+      attemptedAt,
+      httpStatus: null,
+    };
+  } finally {
+    clearTimeout(dispatchTimer);
+  }
 
   if (response.ok || response.status === 204) {
+    logDispatch({
+      status: response.status,
+      success: true,
+      category: null,
+    });
     return {
       triggered: true,
       queued: false,
       reason: null,
+      attemptedAt,
+      httpStatus: response.status,
     };
   }
 
-  const responseText = await response.text().catch(() => "");
-  const failureReason = responseText ? `: ${responseText}` : "";
-
+  const category = response.status === 401 || response.status === 403
+    ? "dispatch_authorization"
+    : response.status === 404
+      ? "dispatch_target_not_found"
+      : response.status >= 500
+        ? "dispatch_github_server_error"
+        : "dispatch_rejected";
+  logDispatch({
+    status: response.status,
+    success: false,
+    category,
+  });
   console.warn(
-    `[MIGRATION DISPATCH] Workflow dispatch for migration ${migrationId} failed with status ${response.status}${failureReason}`
+    `[MIGRATION DISPATCH] Workflow dispatch for migration ${migrationId} failed: ${category} (${response.status})`
   );
 
   return {
     triggered: false,
     queued: true,
     reason: `github_dispatch_failed_${response.status}`,
+    attemptedAt,
+    httpStatus: response.status,
   };
 }
 

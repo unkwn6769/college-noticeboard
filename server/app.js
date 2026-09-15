@@ -37,10 +37,10 @@ import {
   getDriveAccountAuthorizationUrl,
   handleDriveAccountCallback,
 } from "./driveAccountOAuth.js";
-import { getRuntimeContext, scheduleRuntimeTask } from "./runtimeContext.js";
+import { getRuntimeContext } from "./runtimeContext.js";
 
 const app = express();
-const DISPATCH_RUNTIME_VERSION = "dispatch-diagnostics-2026-09-15";
+const DISPATCH_RUNTIME_VERSION = "dispatch-synchronous-2026-09-15";
 
 function getRuntimeEnvValue(key, fallback = undefined) {
   const runtime = getRuntimeContext();
@@ -2340,12 +2340,11 @@ app.post(
           };
         });
 
-      const dispatchScheduled = scheduleRuntimeTask(dispatchPromise);
-      let dispatchResult = null;
-
-      if (!dispatchScheduled) {
-        dispatchResult = await dispatchPromise;
-      }
+      // Await the GitHub dispatch in the request path. This makes automatic
+      // migration execution deterministic instead of relying on the Worker
+      // background lifecycle, which can be shorter/less portable when the
+      // Express server is hosted through cloudflare:node.
+      const dispatchResult = await dispatchPromise;
 
       return res.status(201).json({
         migration: {

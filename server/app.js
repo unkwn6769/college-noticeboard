@@ -37,7 +37,7 @@ import {
   getDriveAccountAuthorizationUrl,
   handleDriveAccountCallback,
 } from "./driveAccountOAuth.js";
-import { getRuntimeContext } from "./runtimeContext.js";
+import { getRuntimeContext, scheduleRuntimeTask } from "./runtimeContext.js";
 
 const app = express();
 const DISPATCH_RUNTIME_VERSION = "dispatch-diagnostics-2026-09-15";
@@ -2303,21 +2303,46 @@ app.post(
           enteredAt: new Date().toISOString(),
         })
       );
-      const dispatchResult = await triggerMigrationWorkflow(migration.id, {
+      const dispatchPromise = triggerMigrationWorkflow(migration.id, {
         maxItems: migrationLimit ?? 0,
-      });
-      console.info(
-        JSON.stringify({
-          event: "migration_dispatch_helper_completed",
-          runtimeVersion: DISPATCH_RUNTIME_VERSION,
-          migrationId: migration.id,
-          triggered: dispatchResult.triggered,
-          queued: dispatchResult.queued,
-          reason: dispatchResult.reason,
-          httpStatus: dispatchResult.httpStatus ?? null,
-          completedAt: new Date().toISOString(),
+      })
+        .then((dispatchResult) => {
+          console.info(
+            JSON.stringify({
+              event: "migration_dispatch_helper_completed",
+              runtimeVersion: DISPATCH_RUNTIME_VERSION,
+              migrationId: migration.id,
+              triggered: dispatchResult.triggered,
+              queued: dispatchResult.queued,
+              reason: dispatchResult.reason,
+              httpStatus: dispatchResult.httpStatus ?? null,
+              completedAt: new Date().toISOString(),
+            })
+          );
+          return dispatchResult;
         })
-      );
+        .catch((error) => {
+          console.error(
+            JSON.stringify({
+              event: "migration_dispatch_helper_unhandled_error",
+              runtimeVersion: DISPATCH_RUNTIME_VERSION,
+              migrationId: migration.id,
+              errorCategory: "dispatch_unhandled",
+              errorMessage: error instanceof Error ? error.message : String(error),
+            })
+          );
+          return {
+            triggered: false,
+            queued: true,
+            reason: "dispatch_unhandled",
+            attemptedAt: new Date().toISOString(),
+            httpStatus: null,
+          };
+        });
+
+      if (!scheduleRuntimeTask(dispatchPromise)) {
+        await dispatchPromise;
+      }
 
       return res.status(201).json({
         migration: {

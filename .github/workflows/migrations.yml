@@ -19,7 +19,35 @@ permissions:
   contents: read
 
 jobs:
+  execute_dispatched:
+    if: github.event_name == 'workflow_dispatch' && inputs.migration_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    concurrency:
+      group: college-noticeboard-migration-${{ inputs.migration_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev --ignore-scripts
+      - run: npm --prefix server ci --omit=dev --ignore-scripts
+      - run: node scripts/run-migration-executor.js "${{ inputs.migration_id }}"
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          MIGRATION_SERVER_SIDE_COPY: "true"
+          MIGRATION_SERVER_SIDE_COPY_TEMPORARY_WRITER: "true"
+          MIGRATION_MIN_WORKERS: "8"
+          MIGRATION_MAX_WORKERS: "64"
+          MIGRATION_MAX_ITEMS_PER_RUN: ${{ inputs.max_items || '0' }}
+          MIGRATION_RECONCILIATION_RETRY_DELAY_MS: "2000"
+          MIGRATION_DRIVE_OPERATION_TIMEOUT_MS: "120000"
+
   discover:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.migration_id == '')
     runs-on: ubuntu-latest
     outputs:
       migrations: ${{ steps.discover.outputs.migrations }}
@@ -29,20 +57,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --omit=dev --ignore-scripts
       - id: discover
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          MIGRATION_ID: ${{ inputs.migration_id }}
         run: |
-          if [ -n "$MIGRATION_ID" ]; then
-            node -e 'process.stdout.write(JSON.stringify([process.env.MIGRATION_ID]))' > migrations.json
-          else
-            node scripts/discover-runnable-migrations.js > migrations.json
-          fi
+          node scripts/discover-runnable-migrations.js > migrations.json
           echo "migrations=$(cat migrations.json)" >> "$GITHUB_OUTPUT"
 
-  execute:
+  execute_discovered:
     needs: discover
     if: needs.discover.outputs.migrations != '[]'
     strategy:
@@ -61,10 +84,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run db:migrate
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      - run: npm ci --omit=dev --ignore-scripts
+      - run: npm --prefix server ci --omit=dev --ignore-scripts
       - run: node scripts/run-migration-executor.js "${{ matrix.migration_id }}"
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
@@ -73,6 +94,6 @@ jobs:
           MIGRATION_SERVER_SIDE_COPY_TEMPORARY_WRITER: "true"
           MIGRATION_MIN_WORKERS: "8"
           MIGRATION_MAX_WORKERS: "64"
-          MIGRATION_MAX_ITEMS_PER_RUN: ${{ inputs.max_items || '0' }}
+          MIGRATION_MAX_ITEMS_PER_RUN: "0"
           MIGRATION_RECONCILIATION_RETRY_DELAY_MS: "2000"
           MIGRATION_DRIVE_OPERATION_TIMEOUT_MS: "120000"

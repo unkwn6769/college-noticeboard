@@ -16,7 +16,7 @@ export default {
   ...nodeHandler,
 
   async fetch(request, env, ctx): Promise<Response> {
-    return runWithRuntimeContext(env, async () => {
+    return runWithRuntimeContext(env, ctx, async () => {
       const response = await nodeFetch(request, env, ctx);
       const url = new URL(request.url);
 

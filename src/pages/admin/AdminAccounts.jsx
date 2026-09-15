@@ -12,7 +12,6 @@ import {
   createTelemetrySample,
   deriveMigrationTelemetry,
 } from "./migrationTelemetry";
-import { isActiveMigrationStatus } from "./migrationState";
 
 const ACTIVE_MIGRATION_KEY =
   "college-noticeboard-active-migration";
@@ -222,13 +221,17 @@ function AdminAccounts() {
           return;
         }
 
-        if (isActiveMigrationStatus(latest.status)) {
+        const latestIsActive =
+          latest.status === "pending" ||
+          latest.status === "running" ||
+          latest.status === "waiting_for_storage";
+
+        if (latestIsActive) {
           setMigration(latest);
           void pollMigration(migrationId);
           return;
         }
 
-        setMigration(null);
         window.localStorage.removeItem(
           ACTIVE_MIGRATION_KEY
         );
@@ -566,10 +569,10 @@ function AdminAccounts() {
           enrichedLatest.status === "failed" ||
           enrichedLatest.status === "cancelled"
         ) {
-          setMigration(null);
           window.localStorage.removeItem(
             ACTIVE_MIGRATION_KEY
           );
+          setMigration(null);
 
           setMigrationError(
             enrichedLatest.errorMessage ||

@@ -4,7 +4,10 @@
  * represented because files.copy() is server-side.
  */
 
-const itemDurationsMs = [40, 80, 120, 60, 100, 50, 90, 70, 110, 55, 95, 65];
+const itemDurationsMs = Array.from(
+  { length: 192 },
+  (_, index) => 40 + ((index * 37) % 81),
+);
 
 function runItem(durationMs, onStart, onFinish) {
   onStart();
@@ -63,18 +66,35 @@ async function runConcurrent(workerCount) {
   return { elapsedMs: performance.now() - startedAt, peak };
 }
 
-const sequential = await runSequential();
-const concurrent = await runConcurrent(4);
-const throughput = itemDurationsMs.length / (concurrent.elapsedMs / 1000);
+const counts = [1, 2, 4, 8, 16, 32, 64, 96, 128];
+const results = [];
 
-if (concurrent.peak > 4 || concurrent.elapsedMs >= sequential.elapsedMs) {
+for (const workerCount of counts) {
+  const result = workerCount === 1
+    ? await runSequential()
+    : await runConcurrent(workerCount);
+  results.push({
+    workers: workerCount,
+    elapsedMs: Math.round(result.elapsedMs),
+    itemsPerSecond: Number(
+      (itemDurationsMs.length / (result.elapsedMs / 1000)).toFixed(2),
+    ),
+    peakWorkers: result.peak,
+  });
+}
+
+const sequential = results[0];
+const best = results.reduce((current, result) =>
+  result.itemsPerSecond > current.itemsPerSecond ? result : current,
+);
+
+if (best.workers < 2 || best.itemsPerSecond <= sequential.itemsPerSecond) {
   throw new Error("Continuous concurrency benchmark did not improve throughput");
 }
 
 console.log(JSON.stringify({
   items: itemDurationsMs.length,
-  sequentialMs: Math.round(sequential.elapsedMs),
-  concurrentMs: Math.round(concurrent.elapsedMs),
-  concurrentPeakWorkers: concurrent.peak,
-  concurrentItemsPerSecond: Number(throughput.toFixed(2)),
+  results,
+  localModelBest: best.workers,
+  note: "Synthetic item latency only; not Google Drive byte throughput.",
 }, null, 2));

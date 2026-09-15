@@ -1,0 +1,24 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "college-noticeboard-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-11",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"vars": {
+		"FRONTEND_URL": "https://college-noticeboard-final-343.pages.dev",
+		"ALLOWED_ORIGINS": "https://college-noticeboard-final-343.pages.dev",
+		"GOOGLE_DRIVE_HTTP2": "false",
+		"NODE_ENV": "production"
+	},
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "b68a2b7bcdd648f9adcaf7d9b3a21081"
+		}
+	]
+}

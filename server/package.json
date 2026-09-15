@@ -1,0 +1,26 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "College Noticeboard Backend",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node preflight.js && node server.js",
+    "dev": "nodemon --exec \"node preflight.js && node --env-file=../.env server.js\"",
+    "preflight": "node preflight.js",
+    "test": "MIGRATION_SERVER_SIDE_COPY=false node --env-file=../.env --test migrationWorker.fencing.test.js fix67Safety.test.js activityLog.test.js sourceRetention.test.js storage/storageQuota.test.js storage/storageFileTypes.test.js storage/storageHealth.test.js recycleBin.test.js driveFileSearch.test.js migrationDriveCopy.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.0",
+    "express": "^5.2.1",
+    "form-data": "^4.0.6",
+    "googleapis": "^176.0.0",
+    "html-entities": "^2.6.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

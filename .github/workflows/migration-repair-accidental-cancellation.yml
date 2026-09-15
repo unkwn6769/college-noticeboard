@@ -1,0 +1,204 @@
+name: Migration Repair Accidental Cancellation
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration_id:
+        description: "Migration UUID"
+        required: true
+        type: string
+      accidental_finished_at:
+        description: "Exact accidental cancellation timestamp"
+        required: true
+        type: string
+      apply:
+        description: "Apply the repair (false = dry run)"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Repair accidental cancellation
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          MIGRATION_ID: ${{ inputs.migration_id }}
+          ACCIDENTAL_FINISHED_AT: ${{ inputs.accidental_finished_at }}
+          APPLY_REPAIR: ${{ inputs.apply }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { pool } from "./server/db/database.js";
+
+          const migrationId = process.env.MIGRATION_ID;
+          const accidentalFinishedAt = process.env.ACCIDENTAL_FINISHED_AT;
+          const apply = process.env.APPLY_REPAIR === "true";
+
+          const client = await pool.connect();
+
+          try {
+            await client.query("BEGIN");
+
+            const migration = await client.query(
+              `
+                SELECT
+                  id,
+                  status,
+                  cancel_requested,
+                  total_files,
+                  completed_files,
+                  failed_files
+                FROM google_drive_account_migrations
+                WHERE id = $1
+                FOR UPDATE
+              `,
+              [migrationId]
+            );
+
+            if (migration.rowCount !== 1) {
+              throw new Error("Migration not found");
+            }
+
+            const m = migration.rows[0];
+
+            if (m.cancel_requested !== false) {
+              throw new Error("Refusing repair: cancel_requested is not FALSE");
+            }
+
+            if (m.status !== "running") {
+              throw new Error(
+                `Refusing repair: migration status is ${m.status}, expected running`
+              );
+            }
+
+            const items = await client.query(
+              `
+                SELECT
+                  id,
+                  status,
+                  transfer_phase,
+                  target_file_id,
+                  target_recovery_required,
+                  source_delete_status,
+                  finished_at,
+                  lease_expires_at
+                FROM google_drive_account_migration_items
+                WHERE migration_id = $1
+                  AND status = 'cancelled'
+                  AND finished_at >= ($2::timestamptz - INTERVAL '1 millisecond')
+                  AND finished_at <  ($2::timestamptz + INTERVAL '1 millisecond')
+                  AND target_recovery_required = TRUE
+                  AND source_delete_status = 'pending'
+                ORDER BY id
+                FOR UPDATE
+              `,
+              [migrationId, accidentalFinishedAt]
+            );
+
+            const summary = {
+              migration: m,
+              candidate_count: items.rowCount,
+              with_target: items.rows.filter((r) => r.target_file_id !== null).length,
+              without_target: items.rows.filter((r) => r.target_file_id === null).length,
+              dry_run: !apply,
+            };
+
+            console.log(JSON.stringify(summary, null, 2));
+
+            if (items.rowCount !== 19) {
+              throw new Error(
+                `Refusing repair: expected exactly 19 candidates, found ${items.rowCount}`
+              );
+            }
+
+            if (!apply) {
+              await client.query("ROLLBACK");
+              console.log("DRY RUN: no database changes applied");
+              process.exit(0);
+            }
+
+            const repaired = await client.query(
+              `
+                UPDATE google_drive_account_migration_items
+                SET
+                  status = 'pending',
+                  finished_at = NULL,
+                  started_at = NULL,
+                  lease_expires_at = NULL,
+                  reserved_bytes = 0,
+                  next_retry_at = NULL,
+                  updated_at = NOW(),
+                  transfer_phase = CASE
+                    WHEN target_file_id IS NOT NULL THEN 'verifying'
+                    ELSE 'pending'
+                  END,
+                  target_recovery_required = TRUE,
+                  source_delete_status = 'pending'
+                WHERE migration_id = $1
+                  AND status = 'cancelled'
+                  AND finished_at >= ($2::timestamptz - INTERVAL '1 millisecond')
+                  AND finished_at <  ($2::timestamptz + INTERVAL '1 millisecond')
+                  AND target_recovery_required = TRUE
+                  AND source_delete_status = 'pending'
+                RETURNING id, transfer_phase, target_file_id
+              `,
+              [migrationId, accidentalFinishedAt]
+            );
+
+            if (repaired.rowCount !== 19) {
+              throw new Error(
+                `Repair race/invariant failure: updated ${repaired.rowCount} rows`
+              );
+            }
+
+            await client.query(
+              `
+                UPDATE google_drive_account_migrations
+                SET
+                  status = 'running',
+                  cancel_requested = FALSE,
+                  finished_at = NULL,
+                  updated_at = NOW()
+                WHERE id = $1
+              `,
+              [migrationId]
+            );
+
+            await client.query("COMMIT");
+
+            console.log(
+              JSON.stringify(
+                {
+                  applied: true,
+                  repaired_count: repaired.rowCount,
+                  with_target: repaired.rows.filter(
+                    (r) => r.target_file_id !== null
+                  ).length,
+                  without_target: repaired.rows.filter(
+                    (r) => r.target_file_id === null
+                  ).length,
+                },
+                null,
+                2
+              )
+            );
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          } finally {
+            client.release();
+            await pool.end();
+          }
+          NODE

@@ -1,0 +1,248 @@
+name: Migration Repair Stranded Items
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration_id:
+        required: true
+        type: string
+      stale_runner_id:
+        required: true
+        type: string
+        default: "34906902131"
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      - name: Repair stranded migration state
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          MIGRATION_ID: ${{ inputs.migration_id }}
+          STALE_RUNNER_ID: ${{ inputs.stale_runner_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { pool } from "./server/db/database.js";
+
+          const migrationId = process.env.MIGRATION_ID;
+          const staleRunnerId = process.env.STALE_RUNNER_ID;
+
+          if (!migrationId || !staleRunnerId) {
+            throw new Error("Missing required inputs");
+          }
+
+          const client = await pool.connect();
+
+          try {
+            await client.query("BEGIN");
+
+            const migrationResult = await client.query(`
+              SELECT
+                id,
+                status,
+                cancel_requested,
+                total_files,
+                completed_files,
+                failed_files
+              FROM google_drive_account_migrations
+              WHERE id = $1
+              FOR UPDATE
+            `, [migrationId]);
+
+            if (migrationResult.rowCount !== 1) {
+              throw new Error("Migration not found");
+            }
+
+            const migration = migrationResult.rows[0];
+
+            if (migration.status !== "running") {
+              throw new Error(
+                `Refusing repair: migration status is ${migration.status}`
+              );
+            }
+
+            if (migration.cancel_requested) {
+              throw new Error(
+                "Refusing repair: cancellation is requested"
+              );
+            }
+
+            if (
+              String(migration.total_files) !== "50" ||
+              String(migration.completed_files) !== "42" ||
+              String(migration.failed_files) !== "7"
+            ) {
+              throw new Error(
+                `Refusing repair: unexpected aggregate state ` +
+                `(total=${migration.total_files}, ` +
+                `completed=${migration.completed_files}, ` +
+                `failed=${migration.failed_files})`
+              );
+            }
+
+            const badItems = await client.query(`
+              SELECT
+                id,
+                status,
+                transfer_phase,
+                target_file_id,
+                lease_generation,
+                lease_expires_at
+              FROM google_drive_account_migration_items
+              WHERE migration_id = $1
+                AND status = 'reconciliation_expired'
+              ORDER BY id
+              FOR UPDATE
+            `, [migrationId]);
+
+            const staleRunning = await client.query(`
+              SELECT
+                id,
+                status,
+                transfer_phase,
+                target_file_id,
+                lease_generation,
+                lease_expires_at
+              FROM google_drive_account_migration_items
+              WHERE migration_id = $1
+                AND status = 'running'
+                AND lease_expires_at IS NOT NULL
+                AND lease_expires_at <= NOW() - INTERVAL '10 minutes'
+              ORDER BY id
+              FOR UPDATE
+            `, [migrationId]);
+
+            const normalFailed = await client.query(`
+              SELECT id
+              FROM google_drive_account_migration_items
+              WHERE migration_id = $1
+                AND status = 'failed'
+              FOR UPDATE
+            `, [migrationId]);
+
+            const executionRun = await client.query(`
+              SELECT id, runner_id, status, heartbeat_at
+              FROM migration_execution_runs
+              WHERE migration_id = $1
+                AND runner_id = $2
+                AND status = 'running'
+              FOR UPDATE
+            `, [migrationId, staleRunnerId]);
+
+            console.log(JSON.stringify({
+              reconciliation_expired: badItems.rowCount,
+              stale_running_items: staleRunning.rowCount,
+              normal_failed_items: normalFailed.rowCount,
+              stale_execution_runs: executionRun.rowCount
+            }, null, 2));
+
+            if (badItems.rowCount !== 7) {
+              throw new Error(
+                `Refusing repair: expected 7 reconciliation_expired items, found ${badItems.rowCount}`
+              );
+            }
+
+            if (staleRunning.rowCount !== 1) {
+              throw new Error(
+                `Refusing repair: expected 1 stale running item, found ${staleRunning.rowCount}`
+              );
+            }
+
+            if (normalFailed.rowCount !== 0) {
+              throw new Error(
+                `Refusing repair: unexpected ordinary failed items: ${normalFailed.rowCount}`
+              );
+            }
+
+            if (executionRun.rowCount !== 1) {
+              throw new Error(
+                `Refusing repair: expected exactly 1 stale execution run, found ${executionRun.rowCount}`
+              );
+            }
+
+            const itemIds = [
+              ...badItems.rows,
+              ...staleRunning.rows,
+            ].map((row) => row.id);
+
+            const repaired = await client.query(`
+              UPDATE google_drive_account_migration_items
+              SET
+                status = 'pending',
+                transfer_phase = CASE
+                  WHEN target_file_id IS NULL THEN 'pending'
+                  ELSE 'verifying'
+                END,
+                target_recovery_required = TRUE,
+                source_delete_status = 'pending',
+                started_at = NULL,
+                finished_at = NULL,
+                lease_expires_at = NULL,
+                next_retry_at = NULL,
+                reserved_bytes = 0,
+                error_message = NULL,
+                lease_generation = lease_generation + 1,
+                updated_at = NOW()
+              WHERE migration_id = $1
+                AND id = ANY($2::text[])
+              RETURNING id, target_file_id, status, transfer_phase,
+                        target_recovery_required, lease_generation
+            `, [migrationId, itemIds]);
+
+            if (repaired.rowCount !== 8) {
+              throw new Error(
+                `Refusing repair: expected 8 repaired items, got ${repaired.rowCount}`
+              );
+            }
+
+            await client.query(`
+              UPDATE google_drive_account_migrations
+              SET
+                status = 'running',
+                cancel_requested = FALSE,
+                failed_files = 0,
+                finished_at = NULL,
+                updated_at = NOW()
+              WHERE id = $1
+            `, [migrationId]);
+
+            await client.query(`
+              UPDATE migration_execution_runs
+              SET
+                status = 'failed',
+                finished_at = NOW(),
+                heartbeat_at = NOW(),
+                last_error =
+                  'Marked failed during stranded migration state repair; GitHub Actions runner had already terminated.'
+              WHERE migration_id = $1
+                AND runner_id = $2
+                AND status = 'running'
+            `, [migrationId, staleRunnerId]);
+
+            await client.query("COMMIT");
+
+            console.log(JSON.stringify({
+              applied: true,
+              repaired_items: 8,
+              reconciliation_expired_repaired: 7,
+              stale_running_repaired: 1,
+              failed_files_reset_to: 0,
+              stale_execution_run_closed: 1
+            }, null, 2));
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          } finally {
+            client.release();
+            await pool.end();
+          }
+          NODE

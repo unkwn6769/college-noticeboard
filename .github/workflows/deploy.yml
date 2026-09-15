@@ -1,0 +1,131 @@
+name: Deploy College Noticeboard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: college-noticeboard-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: noticeboard_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d noticeboard_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: psql "$DATABASE_URL" -f server/db/schema.sql
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/noticeboard_test
+      - name: Create CI test environment
+        run: |
+          cat > .env <<'EOF'
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/noticeboard_test
+          DB_SSL=false
+          NODE_ENV=test
+          MIGRATION_SERVER_SIDE_COPY=false
+          EOF
+
+      - run: npm test
+
+      - name: Remove CI test environment
+        if: always()
+        run: rm -f .env
+
+      - run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
+  migrate-production-db:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
+  deploy-worker:
+    needs: [verify, migrate-production-db]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix cloudflare/api ci
+      - name: Configure Worker secrets
+        working-directory: cloudflare/api
+        env:
+          ADMIN_GOOGLE_CLIENT_ID: ${{ secrets.ADMIN_GOOGLE_CLIENT_ID }}
+          ADMIN_GOOGLE_CLIENT_SECRET: ${{ secrets.ADMIN_GOOGLE_CLIENT_SECRET }}
+          ADMIN_GOOGLE_REDIRECT_URI: ${{ secrets.ADMIN_GOOGLE_REDIRECT_URI }}
+          ADMIN_SESSION_SECRET: ${{ secrets.ADMIN_SESSION_SECRET }}
+          DRIVE_ACCOUNT_GOOGLE_CLIENT_ID: ${{ secrets.DRIVE_ACCOUNT_GOOGLE_CLIENT_ID }}
+          DRIVE_ACCOUNT_GOOGLE_CLIENT_SECRET: ${{ secrets.DRIVE_ACCOUNT_GOOGLE_CLIENT_SECRET }}
+          DRIVE_ACCOUNT_GOOGLE_REDIRECT_URI: ${{ secrets.DRIVE_ACCOUNT_GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          for name in ADMIN_GOOGLE_CLIENT_ID ADMIN_GOOGLE_CLIENT_SECRET ADMIN_GOOGLE_REDIRECT_URI ADMIN_SESSION_SECRET DRIVE_ACCOUNT_GOOGLE_CLIENT_ID DRIVE_ACCOUNT_GOOGLE_CLIENT_SECRET DRIVE_ACCOUNT_GOOGLE_REDIRECT_URI TOKEN_ENCRYPTION_KEY; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              printf '%s' "$value" | npx wrangler secret put "$name"
+            fi
+          done
+      - run: npx wrangler deploy
+        working-directory: cloudflare/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-pages:
+    needs: [verify, migrate-production-db]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+      - run: npx wrangler pages project create college-noticeboard-final --production-branch=main || true
+      - run: npx wrangler pages deploy dist --project-name college-noticeboard-final
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

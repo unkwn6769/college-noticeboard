@@ -1,0 +1,78 @@
+name: Migration Engine
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration_id:
+        description: "Specific migration ID; leave empty to discover runnable migrations"
+        required: false
+        type: string
+      max_items:
+        description: "Maximum items to process in this run; 0 = unlimited"
+        required: false
+        default: "0"
+        type: string
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      migrations: ${{ steps.discover.outputs.migrations }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - id: discover
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          MIGRATION_ID: ${{ inputs.migration_id }}
+        run: |
+          if [ -n "$MIGRATION_ID" ]; then
+            node -e 'process.stdout.write(JSON.stringify([process.env.MIGRATION_ID]))' > migrations.json
+          else
+            node scripts/discover-runnable-migrations.js > migrations.json
+          fi
+          echo "migrations=$(cat migrations.json)" >> "$GITHUB_OUTPUT"
+
+  execute:
+    needs: discover
+    if: needs.discover.outputs.migrations != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.MIGRATION_MAX_PARALLEL || '4') }}
+      matrix:
+        migration_id: ${{ fromJSON(needs.discover.outputs.migrations) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    concurrency:
+      group: college-noticeboard-migration-${{ matrix.migration_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      - run: node scripts/run-migration-executor.js "${{ matrix.migration_id }}"
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          MIGRATION_SERVER_SIDE_COPY: "true"
+          MIGRATION_SERVER_SIDE_COPY_TEMPORARY_WRITER: "true"
+          MIGRATION_MIN_WORKERS: "4"
+          MIGRATION_MAX_WORKERS: "64"
+          MIGRATION_MAX_ITEMS_PER_RUN: ${{ inputs.max_items || '0' }}
+          MIGRATION_RECONCILIATION_RETRY_DELAY_MS: "2000"
+          MIGRATION_DRIVE_OPERATION_TIMEOUT_MS: "120000"

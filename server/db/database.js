@@ -1,0 +1,342 @@
+import pg from "pg";
+import { getRuntimeContext } from "../runtimeContext.js";
+
+const { Pool, Client } = pg;
+
+let nodePool = null;
+const nodePoolListeners = [];
+
+function createNodePool() {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set");
+  }
+
+  const sslEnabled = String(process.env.DB_SSL ?? "true").toLowerCase() !== "false";
+
+  const createdPool = new Pool({
+    connectionString,
+    ...(sslEnabled
+      ? {
+          ssl: {
+            rejectUnauthorized: false,
+          },
+        }
+      : {}),
+    connectionTimeoutMillis: Number(
+      process.env.DB_CONNECTION_TIMEOUT_MS || 10_000,
+    ),
+    idleTimeoutMillis: Number(
+      process.env.DB_IDLE_TIMEOUT_MS || 15_000,
+    ),
+    max: Number(process.env.DB_POOL_MAX || 12),
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    maxLifetimeSeconds: Number(
+      process.env.DB_MAX_LIFETIME_SECONDS || 300,
+    ),
+  });
+
+  for (const [event, listener] of nodePoolListeners) {
+    createdPool.on(event, listener);
+  }
+
+  return createdPool;
+}
+
+function getNodePool() {
+  if (!nodePool) {
+    nodePool = createNodePool();
+  }
+
+  return nodePool;
+}
+
+async function getRequestClient() {
+  const context = getRuntimeContext();
+
+  if (!context) {
+    return null;
+  }
+
+  if (!context.client) {
+    const connectionString = context.env?.HYPERDRIVE?.connectionString;
+
+    if (!connectionString) {
+      throw new Error("HYPERDRIVE connection string is unavailable");
+    }
+
+    context.client = new Client({
+      connectionString,
+    });
+
+    await context.client.connect();
+  }
+
+  return context.client;
+}
+
+async function runtimeQuery(...args) {
+  const client = await getRequestClient();
+
+  if (client) {
+    return client.query(...args);
+  }
+
+  return getNodePool().query(...args);
+}
+
+async function runtimeConnect() {
+  const context = getRuntimeContext();
+
+  if (!context) {
+    return getNodePool().connect();
+  }
+
+  const connectionString = context.env?.HYPERDRIVE?.connectionString;
+
+  if (!connectionString) {
+    throw new Error("HYPERDRIVE connection string is unavailable");
+  }
+
+  const client = new Client({
+    connectionString,
+  });
+
+  await client.connect();
+
+  // Preserve pg.Pool.connect() semantics expected by the existing
+  // application code. This client owns its session and must be released
+  // independently from the request-scoped query client.
+  client.release = () => client.end();
+
+  return client;
+}
+
+export const pool = {
+  query(...args) {
+    return runtimeQuery(...args);
+  },
+
+  connect() {
+    return runtimeConnect();
+  },
+
+  end(...args) {
+    if (!nodePool) {
+      return Promise.resolve();
+    }
+
+    return nodePool.end(...args);
+  },
+
+  on(event, listener) {
+    if (nodePool) {
+      nodePool.on(event, listener);
+    } else {
+      nodePoolListeners.push([event, listener]);
+    }
+
+    return this;
+  },
+};
+
+pool.on("error", (error) => {
+  const code = error?.code;
+
+  if (
+    code === "ETIMEDOUT" ||
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "EPIPE"
+  ) {
+    console.error(
+      `[DATABASE] Transient PostgreSQL connection error: ${code}`,
+    );
+    return;
+  }
+
+  console.error("Unexpected PostgreSQL error:", error);
+});
+
+export async function ensureAdminManagementSchema() {
+  await pool.query(`
+    ALTER TABLE admin_users
+      ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin';
+    ALTER TABLE admin_users
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+    ALTER TABLE admin_users
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'admin_users_role_check'
+      ) THEN
+        ALTER TABLE admin_users
+          ADD CONSTRAINT admin_users_role_check
+          CHECK (role IN ('owner', 'admin'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'admin_users_status_check'
+      ) THEN
+        ALTER TABLE admin_users
+          ADD CONSTRAINT admin_users_status_check
+          CHECK (status IN ('active', 'disabled'));
+      END IF;
+    END $$;
+
+    -- Ensure exactly one bootstrap owner exists when an older database has
+    -- administrators but no role-aware owner yet.
+    UPDATE admin_users
+    SET role = 'owner',
+        updated_at = NOW()
+    WHERE id = (
+      SELECT id
+      FROM admin_users
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1
+    )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM admin_users
+        WHERE role = 'owner'
+      );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_users_status
+      ON admin_users(status);
+    CREATE INDEX IF NOT EXISTS idx_admin_users_role
+      ON admin_users(role);
+  `);
+}
+
+export async function ensureActivityLogSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_activity_logs (
+      id BIGSERIAL PRIMARY KEY,
+      admin_user_id BIGINT
+        REFERENCES admin_users(id)
+        ON DELETE SET NULL,
+      actor_email TEXT,
+      event_type TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      description TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_created_at
+      ON admin_activity_logs(created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_event_type
+      ON admin_activity_logs(event_type, created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_admin_user
+      ON admin_activity_logs(admin_user_id, created_at DESC, id DESC);
+  `);
+}
+
+export async function ensureMigrationSafetySchema() {
+  await pool.query(`
+    ALTER TABLE google_drive_account_migrations
+      ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
+
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMPTZ;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS cleanup_attempt_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS cleanup_next_attempt_at TIMESTAMPTZ;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS reserved_bytes BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS speed_bytes_per_second DOUBLE PRECISION NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS target_recovery_required BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS bytes_transferred BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS transfer_phase TEXT;
+
+    DROP INDEX IF EXISTS idx_google_drive_account_migrations_active_source;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_google_drive_account_migrations_active_source
+      ON google_drive_account_migrations(source_account_id)
+      WHERE status IN ('pending', 'running', 'waiting_for_storage');
+
+    CREATE INDEX IF NOT EXISTS idx_gd_migration_items_retry_due
+      ON google_drive_account_migration_items(status, next_retry_at, created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_gd_migration_items_cleanup_due
+      ON google_drive_account_migration_items(status, source_delete_status, cleanup_next_attempt_at, updated_at, id);
+
+    CREATE INDEX IF NOT EXISTS idx_gd_migration_items_quota_reservations
+      ON google_drive_account_migration_items(target_account_id, status, reserved_bytes)
+      WHERE reserved_bytes > 0;
+    CREATE INDEX IF NOT EXISTS idx_gd_migrations_cancel_requested
+      ON google_drive_account_migrations(cancel_requested, status, updated_at, id);
+
+    ALTER TABLE google_drive_account_migrations
+      DROP CONSTRAINT IF EXISTS google_drive_account_migrations_status_check;
+    ALTER TABLE google_drive_account_migrations
+      ADD CONSTRAINT google_drive_account_migrations_status_check
+      CHECK (status IN ('pending','running','waiting_for_storage','reconciling','reconciliation_expired','completed','failed','cancelled'));
+
+    ALTER TABLE google_drive_account_migration_items
+      DROP CONSTRAINT IF EXISTS google_drive_account_migration_items_status_check;
+    ALTER TABLE google_drive_account_migration_items
+      ADD CONSTRAINT google_drive_account_migration_items_status_check
+      CHECK (status IN ('pending','running','reconciling','reconciliation_expired','completed','failed','cancelled','ambiguous_identity'));
+
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS upload_session_uri_encrypted TEXT;
+
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS upload_bytes_committed BIGINT NOT NULL DEFAULT 0;
+
+    ALTER TABLE google_drive_account_migration_items
+      ADD COLUMN IF NOT EXISTS upload_total_bytes BIGINT NOT NULL DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS migration_execution_runs (
+      id TEXT PRIMARY KEY,
+      migration_id TEXT NOT NULL REFERENCES google_drive_account_migrations(id) ON DELETE CASCADE,
+      runner_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','completed','failed','stopped')),
+      worker_count INTEGER NOT NULL DEFAULT 1 CHECK (worker_count >= 1),
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      finished_at TIMESTAMPTZ,
+      last_error TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_migration_execution_runs_migration
+      ON migration_execution_runs(migration_id, status, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_migration_execution_runs_heartbeat
+      ON migration_execution_runs(status, heartbeat_at);
+`);
+}
+
+export async function ensureMigrationPerformanceIndexes() {
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_gd_migration_items_claim
+      ON google_drive_account_migration_items(migration_id, status, created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_gd_migration_items_cleanup
+      ON google_drive_account_migration_items(status, source_delete_status, updated_at, id);
+    CREATE INDEX IF NOT EXISTS idx_gd_migrations_waiting
+      ON google_drive_account_migrations(status, updated_at, created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_resources_storage_key
+      ON resources(storage_key);
+  `);
+}

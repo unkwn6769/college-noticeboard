@@ -1,0 +1,125 @@
+import {
+  pool,
+  ensureMigrationPerformanceIndexes,
+  ensureMigrationSafetySchema,
+  ensureAdminManagementSchema,
+  ensureActivityLogSchema,
+} from "./db/database.js";
+
+import { ensureQuotaSnapshotSchema } from "./storage/storageQuota.js";
+
+import {
+  startMigrationScheduler,
+  stopMigrationScheduler,
+} from "./migrationScheduler.js";
+
+import app from "./app.js";
+
+const PORT = Number(process.env.PORT) || 3001;
+
+const httpServer = app.listen(PORT, "0.0.0.0", async () => {
+  console.log(
+    `Backend running on port ${PORT}`
+  );
+
+  try {
+    await ensureAdminManagementSchema();
+  } catch (error) {
+    console.error(
+      "Failed to ensure admin management schema:",
+      error
+    );
+  }
+
+  try {
+    await ensureActivityLogSchema();
+  } catch (error) {
+    console.error("Failed to ensure activity log schema:", error);
+  }
+
+  try {
+    await ensureQuotaSnapshotSchema();
+  } catch (error) {
+    console.error("Failed to ensure storage quota schema:", error);
+  }
+
+  try {
+    await ensureMigrationSafetySchema();
+  } catch (error) {
+    console.error(
+      "Failed to ensure migration safety schema:",
+      error
+    );
+  }
+
+  try {
+    await ensureMigrationPerformanceIndexes();
+  } catch (error) {
+    console.error(
+      "Failed to ensure migration performance indexes:",
+      error
+    );
+  }
+
+  if (String(process.env.RUN_LOCAL_MIGRATION_SCHEDULER || "false").toLowerCase() === "true") {
+    startMigrationScheduler().catch((error) => {
+      console.error("Migration scheduler stopped:", error);
+    });
+  } else {
+    console.log("Local migration scheduler disabled; use GitHub Actions migration engine");
+  }
+});
+
+let shutdownPromise = null;
+
+async function shutdown(signal) {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    console.log(`[SERVER] Received ${signal}; shutting down gracefully`);
+
+    try {
+      await stopMigrationScheduler();
+    } catch (error) {
+      console.error(
+        "[SERVER] Failed to stop migration scheduler:",
+        error instanceof Error ? error.message : error
+      );
+    }
+
+    await new Promise((resolve) => {
+      httpServer.close(() => resolve());
+    });
+
+    try {
+      await pool.end();
+    } catch (error) {
+      console.error(
+        "[SERVER] Failed to close PostgreSQL pool:",
+        error instanceof Error ? error.message : error
+      );
+    }
+  })();
+
+  return shutdownPromise;
+}
+
+process.once("SIGINT", () => {
+  shutdown("SIGINT")
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error("[SERVER] Shutdown failed:", error);
+      process.exit(1);
+    });
+});
+
+process.once("SIGTERM", () => {
+  shutdown("SIGTERM")
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error("[SERVER] Shutdown failed:", error);
+      process.exit(1);
+    });
+});

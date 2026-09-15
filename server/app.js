@@ -111,7 +111,7 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
     method: "POST",
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${config.token}`,
+      "Authorization": `Bearer ${String(config.token).trim()}`,
       "X-GitHub-Api-Version": "2022-11-28",
       "Content-Type": "application/json",
     },

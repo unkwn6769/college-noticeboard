@@ -40,6 +40,7 @@ import {
 import { getRuntimeContext } from "./runtimeContext.js";
 
 const app = express();
+const DISPATCH_RUNTIME_VERSION = "dispatch-diagnostics-2026-09-15";
 
 function getRuntimeEnvValue(key, fallback = undefined) {
   const runtime = getRuntimeContext();
@@ -91,16 +92,21 @@ function getGitHubDispatchConfig() {
 async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
   const config = getGitHubDispatchConfig();
   const attemptedAt = new Date().toISOString();
+  const requestStartedAt = Date.now();
   const logDispatch = ({ status = null, success, category }) => {
     console.info(
       JSON.stringify({
         event: "migration_workflow_dispatch",
+        runtimeVersion: DISPATCH_RUNTIME_VERSION,
         migrationId: String(migrationId),
         attemptedAt,
         completedAt: new Date().toISOString(),
+        requestStartedAt: new Date(requestStartedAt).toISOString(),
+        elapsedMs: Date.now() - requestStartedAt,
         workflow: config.workflowName,
         repository: config.repo,
         ref: config.ref,
+        tokenPresent: Boolean(config.token),
         httpStatus: status,
         success,
         errorCategory: category,
@@ -130,6 +136,20 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
   let response;
   const dispatchController = new AbortController();
   const dispatchTimer = setTimeout(() => dispatchController.abort(), 5000);
+  console.info(
+    JSON.stringify({
+      event: "migration_workflow_dispatch_fetch_started",
+      runtimeVersion: DISPATCH_RUNTIME_VERSION,
+      migrationId: String(migrationId),
+      requestStartedAt: new Date(requestStartedAt).toISOString(),
+      url: url.toString(),
+      method: "POST",
+      workflow: config.workflowName,
+      repository: config.repo,
+      ref: config.ref,
+      tokenPresent: Boolean(config.token),
+    })
+  );
   try {
     response = await fetch(url, {
       method: "POST",
@@ -152,6 +172,18 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
     const category = error?.name === "TimeoutError" || error?.name === "AbortError"
       ? "dispatch_timeout"
       : "dispatch_request_error";
+    console.warn(
+      JSON.stringify({
+        event: "migration_workflow_dispatch_fetch_error",
+        runtimeVersion: DISPATCH_RUNTIME_VERSION,
+        migrationId: String(migrationId),
+        errorName: error?.name ?? "UnknownError",
+        errorCategory: category,
+        timeout: category === "dispatch_timeout",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        elapsedMs: Date.now() - requestStartedAt,
+      })
+    );
     logDispatch({ success: false, category });
     console.warn(
       `[MIGRATION DISPATCH] Workflow dispatch request failed for migration ${migrationId}: ${category}`
@@ -168,6 +200,16 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
   }
 
   if (response.ok || response.status === 204) {
+    console.info(
+      JSON.stringify({
+        event: "migration_workflow_dispatch_fetch_response",
+        runtimeVersion: DISPATCH_RUNTIME_VERSION,
+        migrationId: String(migrationId),
+        httpStatus: response.status,
+        responseOk: response.ok,
+        elapsedMs: Date.now() - requestStartedAt,
+      })
+    );
     logDispatch({
       status: response.status,
       success: true,
@@ -182,6 +224,14 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
     };
   }
 
+  const responseText = await response.text().catch(() => "");
+  let responseMessage = "";
+  try {
+    const parsed = JSON.parse(responseText);
+    responseMessage = typeof parsed?.message === "string" ? parsed.message : "";
+  } catch {
+    responseMessage = "";
+  }
   const category = response.status === 401 || response.status === 403
     ? "dispatch_authorization"
     : response.status === 404
@@ -194,6 +244,18 @@ async function triggerMigrationWorkflow(migrationId, { maxItems = 0 } = {}) {
     success: false,
     category,
   });
+  console.warn(
+    JSON.stringify({
+      event: "migration_workflow_dispatch_fetch_response",
+      runtimeVersion: DISPATCH_RUNTIME_VERSION,
+      migrationId: String(migrationId),
+      httpStatus: response.status,
+      responseOk: response.ok,
+      elapsedMs: Date.now() - requestStartedAt,
+      errorCategory: category,
+      errorMessage: responseMessage.slice(0, 240),
+    })
+  );
   console.warn(
     `[MIGRATION DISPATCH] Workflow dispatch for migration ${migrationId} failed: ${category} (${response.status})`
   );
@@ -1397,6 +1459,14 @@ app.patch(
       );
 
       await client.query("COMMIT");
+      console.info(
+        JSON.stringify({
+          event: "migration_creation_commit",
+          runtimeVersion: DISPATCH_RUNTIME_VERSION,
+          migrationId,
+          committedAt: new Date().toISOString(),
+        })
+      );
 
       await logAdminActivity({
         req,
@@ -2225,9 +2295,29 @@ app.post(
         insertMigrationResult
           .rows[0];
 
+      console.info(
+        JSON.stringify({
+          event: "migration_dispatch_helper_entered",
+          runtimeVersion: DISPATCH_RUNTIME_VERSION,
+          migrationId: migration.id,
+          enteredAt: new Date().toISOString(),
+        })
+      );
       const dispatchResult = await triggerMigrationWorkflow(migration.id, {
         maxItems: migrationLimit ?? 0,
       });
+      console.info(
+        JSON.stringify({
+          event: "migration_dispatch_helper_completed",
+          runtimeVersion: DISPATCH_RUNTIME_VERSION,
+          migrationId: migration.id,
+          triggered: dispatchResult.triggered,
+          queued: dispatchResult.queued,
+          reason: dispatchResult.reason,
+          httpStatus: dispatchResult.httpStatus ?? null,
+          completedAt: new Date().toISOString(),
+        })
+      );
 
       return res.status(201).json({
         migration: {

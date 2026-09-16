@@ -1,0 +1,18 @@
+[Unit]
+Description=College Noticeboard filesystem maintenance
+After=local-fs.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=noticeboard
+Group=noticeboard
+WorkingDirectory=/opt/college-noticeboard
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/college-noticeboard.env
+ExecStart=/usr/bin/npm run maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/noticeboard

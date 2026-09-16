@@ -10,7 +10,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "oxlint",
+    "lint": "oxlint src scripts",
+    "test": "vitest run",
     "db:init": "node scripts/db-init.mjs",
     "maintenance": "node scripts/maintenance.mjs"
   },
@@ -22,8 +23,10 @@
   },
   "devDependencies": {
     "@types/node": "26.5.1",
+    "@types/pg": "^8.23.1",
     "@types/react": "19.3.0",
     "oxlint": "^1.75.0",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "^5.0.1"
   }
 }

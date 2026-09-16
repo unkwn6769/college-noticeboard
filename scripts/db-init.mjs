@@ -13,7 +13,7 @@ try {
   await client.query("BEGIN");
   await client.query(sql);
   await client.query("COMMIT");
-  console.log("Applied database foundation 001_initial");
+  console.log("Initialized database foundation");;
 } catch (error) {
   await client.query("ROLLBACK");
   throw error;

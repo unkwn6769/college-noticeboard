@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "oxlint",
-    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:init": "node scripts/db-init.mjs",
     "maintenance": "node scripts/maintenance.mjs"
   },
   "dependencies": {

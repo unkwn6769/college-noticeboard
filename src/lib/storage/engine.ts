@@ -151,21 +151,40 @@ export class StorageEngine {
   }
 
   async publish(fileId: string, stagingPath: string): Promise<string> {
-    assertFileId(fileId);
+  assertFileId(fileId);
 
-    const expectedStagingRoot = path.resolve(stagingDir());
-    assertInsideRoot(stagingPath, expectedStagingRoot);
+  const expectedStagingRoot = path.resolve(stagingDir());
+  assertInsideRoot(stagingPath, expectedStagingRoot);
 
-    const dir = objectDir(fileId);
-    const target = objectPath(fileId);
+  const stagingInfo = await fs.lstat(stagingPath);
 
-    await fs.mkdir(dir, { recursive: true });
-
-    await fs.rename(stagingPath, target);
-    await fsyncDirectory(dir);
-
-    return target;
+  if (!stagingInfo.isFile()) {
+    throw new Error("Staging path must be a regular file");
   }
+
+  const shard = path.join(
+    STORAGE_ROOT,
+    "files",
+    shardFor(fileId),
+  );
+
+  const dir = objectDir(fileId);
+  const target = objectPath(fileId);
+
+  // The file-id directory itself is the no-overwrite guard.
+  // Only one publisher can create it.
+  await fs.mkdir(shard, { recursive: true });
+  await fs.mkdir(dir);
+
+  // Make the newly created object directory durable.
+  await fsyncDirectory(shard);
+
+  // Final object publication remains atomic.
+  await fs.rename(stagingPath, target);
+  await fsyncDirectory(dir);
+
+  return target;
+}
 
   async inspect(fileId: string): Promise<{
     path: string;
@@ -174,7 +193,11 @@ export class StorageEngine {
     assertFileId(fileId);
 
     const target = objectPath(fileId);
-    const info = await fs.stat(target);
+    const info = await fs.lstat(target);
+
+    if (!info.isFile()) {
+      throw new Error("Object must be a regular file");
+    }
 
     return {
       path: target,
@@ -190,7 +213,11 @@ export class StorageEngine {
     assertFileId(fileId);
 
     const target = objectPath(fileId);
-    const info = await fs.stat(target);
+    const info = await fs.lstat(target);
+
+    if (!info.isFile()) {
+      throw new Error("Object must be a regular file");
+    }
 
     if (info.size !== expectedSizeBytes) {
       return false;
@@ -271,7 +298,7 @@ export class StorageEngine {
         );
 
         try {
-          const info = await fs.stat(object);
+          const info = await fs.lstat(object);
 
           if (info.isFile()) {
             objects.push(object);

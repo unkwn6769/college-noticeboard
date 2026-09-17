@@ -26,5 +26,13 @@ export function normalizeMimeType(value: string | null): string {
 export function assertSameOrigin(request: Request): void {
   const origin = request.headers.get("origin");
   if (!origin) return;
-  if (origin !== new URL(request.url).origin) throw new Error("Origin check failed");
+
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const expectedOrigin =
+    forwardedProto && forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : new URL(request.url).origin;
+
+  if (origin !== expectedOrigin) throw new Error("Origin check failed");
 }

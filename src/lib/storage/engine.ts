@@ -12,26 +12,26 @@ import { Transform, type Readable } from "node:stream";
 export const STORAGE_ROOT =
   process.env.NOTICEBOARD_STORAGE_ROOT ?? "/srv/noticeboard";
 
-const FILE_ID_PATTERN =
+const STORAGE_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function assertFileId(fileId: string): void {
-  if (!FILE_ID_PATTERN.test(fileId)) {
-    throw new Error("Invalid file ID");
+function assertStorageKey(storageKey: string): void {
+  if (!STORAGE_KEY_PATTERN.test(storageKey)) {
+    throw new Error("Invalid storage key");
   }
 }
 
-function shardFor(fileId: string): string {
-  assertFileId(fileId);
-  return fileId.slice(0, 2).toLowerCase();
+function shardFor(storageKey: string): string {
+  assertStorageKey(storageKey);
+  return storageKey.slice(0, 2).toLowerCase();
 }
 
-function objectDir(fileId: string): string {
-  return path.join(STORAGE_ROOT, "files", shardFor(fileId), fileId);
+function objectDir(storageKey: string): string {
+  return path.join(STORAGE_ROOT, "files", shardFor(storageKey), storageKey);
 }
 
-function objectPath(fileId: string): string {
-  return path.join(objectDir(fileId), "object");
+function objectPath(storageKey: string): string {
+  return path.join(objectDir(storageKey), "object");
 }
 
 function stagingDir(): string {
@@ -188,8 +188,8 @@ export class StorageEngine {
     };
   }
 
-  async publish(fileId: string, stagingPath: string): Promise<string> {
-  assertFileId(fileId);
+  async publish(storageKey: string, stagingPath: string): Promise<string> {
+  assertStorageKey(storageKey);
 
   const expectedStagingRoot = path.resolve(stagingDir());
   assertInsideRoot(stagingPath, expectedStagingRoot);
@@ -203,13 +203,13 @@ export class StorageEngine {
   const shard = path.join(
     STORAGE_ROOT,
     "files",
-    shardFor(fileId),
+    shardFor(storageKey),
   );
 
-  const dir = objectDir(fileId);
-  const target = objectPath(fileId);
+  const dir = objectDir(storageKey);
+  const target = objectPath(storageKey);
 
-  // The file-id directory itself is the no-overwrite guard.
+  // The storage-key directory itself is the no-overwrite guard.
   // Only one publisher can create it.
   await fs.mkdir(shard, { recursive: true });
   await fs.mkdir(dir);
@@ -224,13 +224,13 @@ export class StorageEngine {
   return target;
 }
 
-  async inspect(fileId: string): Promise<{
+  async inspect(storageKey: string): Promise<{
     path: string;
     sizeBytes: number;
   }> {
-    assertFileId(fileId);
+    assertStorageKey(storageKey);
 
-    const target = objectPath(fileId);
+    const target = objectPath(storageKey);
     const info = await fs.lstat(target);
 
     if (!info.isFile()) {
@@ -244,13 +244,13 @@ export class StorageEngine {
   }
 
   async verify(
-    fileId: string,
+    storageKey: string,
     expectedSizeBytes: number,
     expectedSha256: string,
   ): Promise<boolean> {
-    assertFileId(fileId);
+    assertStorageKey(storageKey);
 
-    const target = objectPath(fileId);
+    const target = objectPath(storageKey);
     const info = await fs.lstat(target);
 
     if (!info.isFile()) {
@@ -270,10 +270,10 @@ export class StorageEngine {
     return hash.digest("hex") === expectedSha256;
   }
 
-  async quarantine(fileId: string): Promise<string> {
-    assertFileId(fileId);
+  async quarantine(storageKey: string): Promise<string> {
+    assertStorageKey(storageKey);
 
-    const source = objectPath(fileId);
+    const source = objectPath(storageKey);
     const quarantineRoot = path.join(
       STORAGE_ROOT,
       "quarantine",
@@ -282,7 +282,7 @@ export class StorageEngine {
 
     const target = path.join(
       quarantineRoot,
-      `${fileId}-${randomUUID()}`,
+      `${storageKey}-${randomUUID()}`,
     );
 
     await fs.rename(source, target);
@@ -325,7 +325,7 @@ export class StorageEngine {
       for (const fileDir of await fs.readdir(shardDir, {
         withFileTypes: true,
       })) {
-        if (!fileDir.isDirectory() || !FILE_ID_PATTERN.test(fileDir.name)) {
+        if (!fileDir.isDirectory() || !STORAGE_KEY_PATTERN.test(fileDir.name)) {
           continue;
         }
 

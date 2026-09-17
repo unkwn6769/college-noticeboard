@@ -157,7 +157,7 @@ describe("StorageEngine", () => {
   it("publishes a staged object using the UUID shard layout", async () => {
     const engine = await createEngine();
 
-    const fileId = "8b0c4e2b-1234-4567-89ab-cdef01234567";
+    const storageKey = "8b0c4e2b-1234-4567-89ab-cdef01234567";
 
     const { stagingPath } = await engine.createStagingFile();
 
@@ -167,14 +167,14 @@ describe("StorageEngine", () => {
 
     const result = await engine.writeStream(input, stagingPath);
 
-    const publishedPath = await engine.publish(fileId, stagingPath);
+    const publishedPath = await engine.publish(storageKey, stagingPath);
 
     expect(publishedPath).toBe(
       path.join(
         root,
         "files",
         "8b",
-        fileId,
+        storageKey,
         "object",
       ),
     );
@@ -187,7 +187,7 @@ describe("StorageEngine", () => {
 
     expect(
       await engine.verify(
-        fileId,
+        storageKey,
         result.sizeBytes,
         result.sha256,
       ),
@@ -197,7 +197,7 @@ describe("StorageEngine", () => {
   it("inspects a published object", async () => {
     const engine = await createEngine();
 
-    const fileId = "12345678-1234-4234-8234-123456789abc";
+    const storageKey = "12345678-1234-4234-8234-123456789abc";
 
     const { stagingPath } = await engine.createStagingFile();
 
@@ -207,16 +207,16 @@ describe("StorageEngine", () => {
 
     const result = await engine.writeStream(input, stagingPath);
 
-    await engine.publish(fileId, stagingPath);
+    await engine.publish(storageKey, stagingPath);
 
-    const info = await engine.inspect(fileId);
+    const info = await engine.inspect(storageKey);
 
     expect(info.path).toBe(
       path.join(
         root,
         "files",
         "12",
-        fileId,
+        storageKey,
         "object",
       ),
     );
@@ -227,7 +227,7 @@ describe("StorageEngine", () => {
   it("refuses to overwrite an existing published object", async () => {
   const engine = await createEngine();
 
-  const fileId = "11111111-1234-4123-8123-123456789abc";
+  const storageKey = "11111111-1234-4123-8123-123456789abc";
 
   const first = await engine.createStagingFile();
 
@@ -237,7 +237,7 @@ describe("StorageEngine", () => {
   );
 
   const publishedPath = await engine.publish(
-    fileId,
+    storageKey,
     first.stagingPath,
   );
 
@@ -249,31 +249,61 @@ describe("StorageEngine", () => {
   );
 
   await expect(
-    engine.publish(fileId, second.stagingPath),
+    engine.publish(storageKey, second.stagingPath),
   ).rejects.toMatchObject({
     code: "EEXIST",
   });
 
   await expect(stat(second.stagingPath)).resolves.toBeTruthy();
 
-  const info = await engine.inspect(fileId);
+  const info = await engine.inspect(storageKey);
 
   expect(info.path).toBe(publishedPath);
   expect(info.sizeBytes).toBe(firstResult.sizeBytes);
 
   expect(
     await engine.verify(
-      fileId,
+      storageKey,
       firstResult.sizeBytes,
       firstResult.sha256,
     ),
   ).toBe(true);
 });
 
+  it("allows distinct storage keys to coexist", async () => {
+    const engine = await createEngine();
+
+    const first = await engine.createStagingFile();
+    await engine.writeStream(
+      Readable.from([Buffer.from("version-one")]),
+      first.stagingPath,
+    );
+
+    const second = await engine.createStagingFile();
+    await engine.writeStream(
+      Readable.from([Buffer.from("version-two")]),
+      second.stagingPath,
+    );
+
+    const storageKeyA = "11111111-1111-4111-8111-111111111111";
+    const storageKeyB = "22222222-2222-4222-8222-222222222222";
+
+    await engine.publish(storageKeyA, first.stagingPath);
+    await engine.publish(storageKeyB, second.stagingPath);
+
+    await expect(engine.inspect(storageKeyA)).resolves.toMatchObject({
+      sizeBytes: Buffer.byteLength("version-one"),
+    });
+
+    await expect(engine.inspect(storageKeyB)).resolves.toMatchObject({
+      sizeBytes: Buffer.byteLength("version-two"),
+    });
+  });
+
   it("detects a corrupted published object", async () => {
     const engine = await createEngine();
 
-    const fileId = "abcdef12-1234-4123-8123-123456789abc";
+    const storageKey = "abcdef12-1234-4123-8123-123456789abc";
 
     const { stagingPath } = await engine.createStagingFile();
 
@@ -283,13 +313,13 @@ describe("StorageEngine", () => {
 
     const result = await engine.writeStream(input, stagingPath);
 
-    await engine.publish(fileId, stagingPath);
+    await engine.publish(storageKey, stagingPath);
 
     const publishedPath = path.join(
       root,
       "files",
       "ab",
-      fileId,
+      storageKey,
       "object",
     );
 
@@ -298,7 +328,7 @@ describe("StorageEngine", () => {
     );
 
     const valid = await engine.verify(
-      fileId,
+      storageKey,
       result.sizeBytes,
       result.sha256,
     );
@@ -309,7 +339,7 @@ describe("StorageEngine", () => {
   it("quarantines a published object", async () => {
     const engine = await createEngine();
 
-    const fileId = "deadbeef-1234-4123-8123-123456789abc";
+    const storageKey = "deadbeef-1234-4123-8123-123456789abc";
 
     const { stagingPath } = await engine.createStagingFile();
 
@@ -318,16 +348,16 @@ describe("StorageEngine", () => {
       stagingPath,
     );
 
-    await engine.publish(fileId, stagingPath);
+    await engine.publish(storageKey, stagingPath);
 
-    const quarantinePath = await engine.quarantine(fileId);
+    const quarantinePath = await engine.quarantine(storageKey);
 
     expect(quarantinePath).toContain(
-      path.join("quarantine", "objects", fileId),
+      path.join("quarantine", "objects", storageKey),
     );
 
     await expect(
-      engine.inspect(fileId),
+      engine.inspect(storageKey),
     ).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -338,7 +368,7 @@ describe("StorageEngine", () => {
   it("purges a quarantined object", async () => {
     const engine = await createEngine();
 
-    const fileId = "feedface-1234-4123-8123-123456789abc";
+    const storageKey = "feedface-1234-4123-8123-123456789abc";
 
     const { stagingPath } = await engine.createStagingFile();
 
@@ -347,9 +377,9 @@ describe("StorageEngine", () => {
       stagingPath,
     );
 
-    await engine.publish(fileId, stagingPath);
+    await engine.publish(storageKey, stagingPath);
 
-    const quarantinePath = await engine.quarantine(fileId);
+    const quarantinePath = await engine.quarantine(storageKey);
 
     await engine.purgeQuarantine(quarantinePath);
 
@@ -408,7 +438,7 @@ describe("StorageEngine", () => {
     expect(stats.usagePercent).toBeLessThanOrEqual(100);
   });
 
-  it("rejects invalid file IDs", async () => {
+  it("rejects invalid storage keys", async () => {
     const engine = await createEngine();
 
     const { stagingPath } = await engine.createStagingFile();
@@ -420,7 +450,7 @@ describe("StorageEngine", () => {
 
     await expect(
       engine.publish("../escape", stagingPath),
-    ).rejects.toThrow("Invalid file ID");
+    ).rejects.toThrow("Invalid storage key");
   });
 
   it("rejects a staging path outside the staging directory", async () => {
@@ -461,13 +491,13 @@ describe("StorageEngine", () => {
   it("rejects a symlink at the published object path", async () => {
   const engine = await createEngine();
 
-  const fileId = "22222222-1234-4123-8123-123456789abc";
+  const storageKey = "22222222-1234-4123-8123-123456789abc";
 
   const targetDir = path.join(
     root,
     "files",
     "22",
-    fileId,
+    storageKey,
   );
 
   const objectPath = path.join(targetDir, "object");
@@ -482,12 +512,12 @@ describe("StorageEngine", () => {
   );
 
   await expect(
-    engine.inspect(fileId),
+    engine.inspect(storageKey),
   ).rejects.toThrow();
 
   await expect(
     engine.verify(
-      fileId,
+      storageKey,
       Buffer.byteLength("outside secret"),
       "invalid-hash",
     ),
@@ -497,13 +527,13 @@ describe("StorageEngine", () => {
 it("does not treat an object symlink as a published object", async () => {
   const engine = await createEngine();
 
-  const fileId = "33333333-1234-4123-8123-123456789abc";
+  const storageKey = "33333333-1234-4123-8123-123456789abc";
 
   const targetDir = path.join(
     root,
     "files",
     "33",
-    fileId,
+    storageKey,
   );
 
   const objectPath = path.join(targetDir, "object");

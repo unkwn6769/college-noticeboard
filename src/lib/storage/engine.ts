@@ -280,12 +280,17 @@ export class StorageEngine {
     assertStorageKey(storageKey);
 
     const source = objectPath(storageKey);
+    const sourceInfo = await fs.lstat(source);
+
+    if (!sourceInfo.isFile()) {
+      throw new Error("Object must be a regular file");
+    }
+
     const quarantineRoot = path.join(
       STORAGE_ROOT,
       "quarantine",
       "objects",
     );
-
     const target = path.join(
       quarantineRoot,
       `${storageKey}-${randomUUID()}`,
@@ -301,12 +306,18 @@ export class StorageEngine {
     const quarantineRoot = path.resolve(
       path.join(STORAGE_ROOT, "quarantine"),
     );
-
     const resolved = path.resolve(pathname);
 
     assertInsideRoot(resolved, quarantineRoot);
 
+    const info = await fs.lstat(resolved);
+
+    if (!info.isFile()) {
+      throw new Error("Quarantine path must be a regular file");
+    }
+
     await fs.unlink(resolved);
+    await fsyncDirectory(path.dirname(resolved));
   }
 
   async scanStaging(): Promise<string[]> {

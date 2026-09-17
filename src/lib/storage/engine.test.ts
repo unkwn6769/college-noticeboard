@@ -380,6 +380,69 @@ describe("StorageEngine", () => {
     expect(await stat(quarantinePath)).toBeTruthy();
   });
 
+  it("rejects quarantining a symlink", async () => {
+    const engine = await createEngine();
+
+    const storageKey = "33333333-3333-4333-8333-333333333333";
+    const { stagingPath } = await engine.createStagingFile();
+
+    await engine.writeStream(
+      Readable.from([Buffer.from("quarantine-symlink-test")]),
+      stagingPath,
+    );
+
+    const publishedPath = await engine.publish(
+      storageKey,
+      stagingPath,
+    );
+
+    const realPath = path.join(root, "real-quarantine-target");
+    await writeFile(
+      realPath,
+      Buffer.from("quarantine-symlink-test"),
+    );
+    await unlink(publishedPath);
+    await symlink(realPath, publishedPath);
+
+    await expect(
+      engine.quarantine(storageKey),
+    ).rejects.toThrow("Object must be a regular file");
+  });
+
+  it("rejects purging a quarantine symlink", async () => {
+    const engine = await createEngine();
+    await engine.init();
+
+    const quarantineRoot = path.join(
+      root,
+      "quarantine",
+      "objects",
+    );
+    const realPath = path.join(
+      quarantineRoot,
+      "real-quarantine-object",
+    );
+    const linkPath = path.join(
+      quarantineRoot,
+      "quarantine-link",
+    );
+
+    await writeFile(
+      realPath,
+      Buffer.from("purge-symlink-test"),
+    );
+    await symlink(realPath, linkPath);
+
+    await expect(
+      engine.purgeQuarantine(linkPath),
+    ).rejects.toThrow(
+      "Quarantine path must be a regular file",
+    );
+
+    const linkInfo = await lstat(linkPath);
+    expect(linkInfo.isSymbolicLink()).toBe(true);
+  });
+
   it("purges a quarantined object", async () => {
     const engine = await createEngine();
 

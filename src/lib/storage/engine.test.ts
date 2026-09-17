@@ -6,6 +6,7 @@ import {
   stat,
   symlink,
   writeFile,
+  unlink,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -74,6 +75,85 @@ describe("StorageEngine", () => {
       "b2546767c1c0351ed60e3d2020bccbf8dd550d7e35270a0674bdf547641b6800",
     );
   });
+  it("finalizes a staged file after verifying size and SHA-256", async () => {
+    const engine = await createEngine();
+    const { stagingPath } = await engine.createStagingFile();
+
+    const payload = Buffer.from("finalize-write-test");
+    const written = await engine.writeStream(
+      Readable.from([payload]),
+      stagingPath,
+    );
+
+    const finalized = await engine.finalizeWrite(
+      stagingPath,
+      written.sizeBytes,
+      written.sha256,
+    );
+
+    expect(finalized).toEqual(written);
+  });
+
+  it("rejects a staged file with a size mismatch", async () => {
+    const engine = await createEngine();
+    const { stagingPath } = await engine.createStagingFile();
+
+    const payload = Buffer.from("size-mismatch-test");
+    const written = await engine.writeStream(
+      Readable.from([payload]),
+      stagingPath,
+    );
+
+    await expect(
+      engine.finalizeWrite(
+        stagingPath,
+        written.sizeBytes + 1,
+        written.sha256,
+      ),
+    ).rejects.toThrow("Staging file size mismatch");
+  });
+
+  it("rejects a staged file with a checksum mismatch", async () => {
+    const engine = await createEngine();
+    const { stagingPath } = await engine.createStagingFile();
+
+    const payload = Buffer.from("checksum-mismatch-test");
+    const written = await engine.writeStream(
+      Readable.from([payload]),
+      stagingPath,
+    );
+
+    await expect(
+      engine.finalizeWrite(
+        stagingPath,
+        written.sizeBytes,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+      ),
+    ).rejects.toThrow("Staging file checksum mismatch");
+  });
+
+  it("rejects a staging symlink during finalize", async () => {
+    const engine = await createEngine();
+    const { stagingPath } = await engine.createStagingFile();
+
+    const realPath = path.join(
+      path.dirname(stagingPath),
+      "real-file.partial",
+    );
+    await writeFile(stagingPath, Buffer.from("symlink-finalize-test"));
+    await writeFile(realPath, Buffer.from("symlink-finalize-test"));
+    await unlink(stagingPath);
+    await symlink(realPath, stagingPath);
+
+    await expect(
+      engine.finalizeWrite(
+        stagingPath,
+        Buffer.byteLength("symlink-finalize-test"),
+        "invalid",
+      ),
+    ).rejects.toThrow("Staging path must be a regular file");
+  });
+
   it("publishes a staged object using the UUID shard layout", async () => {
     const engine = await createEngine();
 

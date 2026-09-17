@@ -150,6 +150,44 @@ export class StorageEngine {
     };
   }
 
+  async finalizeWrite(
+    stagingPath: string,
+    expectedSizeBytes: number,
+    expectedSha256: string,
+  ): Promise<{ sizeBytes: number; sha256: string }> {
+    const expectedStagingRoot = path.resolve(stagingDir());
+    assertInsideRoot(stagingPath, expectedStagingRoot);
+
+    const stagingInfo = await fs.lstat(stagingPath);
+
+    if (!stagingInfo.isFile()) {
+      throw new Error("Staging path must be a regular file");
+    }
+
+    if (stagingInfo.size !== expectedSizeBytes) {
+      throw new Error("Staging file size mismatch");
+    }
+
+    await fsyncFile(stagingPath);
+
+    const hash = createHash("sha256");
+
+    for await (const chunk of createReadStream(stagingPath)) {
+      hash.update(chunk as Buffer);
+    }
+
+    const sha256 = hash.digest("hex");
+
+    if (sha256 !== expectedSha256) {
+      throw new Error("Staging file checksum mismatch");
+    }
+
+    return {
+      sizeBytes: stagingInfo.size,
+      sha256,
+    };
+  }
+
   async publish(fileId: string, stagingPath: string): Promise<string> {
   assertFileId(fileId);
 

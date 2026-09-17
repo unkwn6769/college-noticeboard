@@ -13,7 +13,9 @@
     "lint": "oxlint src scripts",
     "test": "vitest run",
     "db:init": "node scripts/db-init.mjs",
-    "maintenance": "node scripts/maintenance.mjs"
+    "admin:create": "node scripts/create-admin.mjs",
+    "maintenance": "node scripts/maintenance.mjs",
+    "backup:db": "node scripts/backup-db.mjs"
   },
   "dependencies": {
     "next": "^16.3.3",

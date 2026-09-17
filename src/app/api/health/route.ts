@@ -6,29 +6,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const checks: Record<string, string> = {};
+  const checks: Record<string, string | number> = {};
   let ok = true;
-
+  try { await getDbPool().query("SELECT 1"); checks.postgresql = "ok"; }
+  catch { checks.postgresql = "error"; ok = false; }
   try {
-    await getDbPool().query("SELECT 1");
-    checks.postgresql = "ok";
-  } catch {
-    checks.postgresql = "error";
-    ok = false;
-  }
-
-  try {
-    const storage = getStorageEngine();
-    const stats = await storage.getDiskStats();
+    const stats = await getStorageEngine().getDiskStats();
     checks.storageRoot = "ok";
     checks.storageWritable = String(stats.writable);
-    checks.diskUsagePercent = stats.usagePercent.toFixed(2);
-    if (stats.usagePercent >= 95) ok = false;
-  } catch {
-    checks.storageRoot = "error";
-    ok = false;
-  }
-
+    checks.diskUsagePercent = Number(stats.usagePercent.toFixed(2));
+    checks.diskPressure = stats.pressure;
+    if (stats.pressure === "EMERGENCY") ok = false;
+  } catch { checks.storageRoot = "error"; ok = false; }
   return NextResponse.json(
     { ok, checks, timestamp: new Date().toISOString() },
     { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } },

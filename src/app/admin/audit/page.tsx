@@ -1,0 +1,3 @@
+"use client";
+import { useEffect,useState } from "react";
+export default function AuditPage(){const [events,setEvents]=useState<any[]>([]);useEffect(()=>{fetch("/api/admin/audit").then(r=>r.json()).then(d=>setEvents(d.events??[]));},[]);return <><h1>Audit</h1><div className="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Entity</th><th>Metadata</th></tr></thead><tbody>{events.map(e=><tr key={e.id}><td>{new Date(e.created_at).toLocaleString()}</td><td>{e.event_type}</td><td>{e.actor_email??"system"}</td><td>{e.entity_type??""} {e.entity_id??""}</td><td><code>{JSON.stringify(e.metadata)}</code></td></tr>)}</tbody></table></div></>}

@@ -1,0 +1,25 @@
+[Unit]
+Description=College Noticeboard
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=college-noticeboard
+Group=college-noticeboard
+WorkingDirectory=/opt/college-noticeboard
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/college-noticeboard.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/noticeboard /var/log/college-noticeboard
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,29 +1,17 @@
-# Phase 1 — Foundation
+# Foundation / V1 status
 
-## Status
+The original architecture used OCI Always Free. The actual environment for this rebuild is Azure for Students. This is an infrastructure substitution, not an application architecture change.
 
-Started.
+Implemented V1 layers:
 
-## Deliberate decisions
-
-- One Next.js/Node.js application.
-- PostgreSQL is the application control plane.
-- The OCI Block Volume is the authoritative file store.
-- Storage access is behind one `StorageEngine`.
-- No migration subsystem exists.
-- No distributed queue/worker infrastructure exists.
-
-## Remaining Phase 1 work
-
-- OCI VM provisioning
-- VCN/subnet/security rules
-- 50 GB boot + 150 GB block volume
-- Ubuntu LTS setup
-- SSH hardening
-- `/srv/noticeboard` mount
-- PostgreSQL installation and role/database creation
-- systemd service definitions
-- Nginx reverse proxy
-- Cloudflare DNS/proxy/TLS configuration
-
-These require access to the actual OCI tenancy and should not be fabricated locally.
+1. Next.js application shell and routes.
+2. PostgreSQL schema and access layer.
+3. Storage engine with staging, hashing, fsync, atomic publication, verification, quarantine, purge, scans and disk pressure.
+4. Authentication and authorization.
+5. Notice APIs and UI.
+6. File upload/download/replacement/delete APIs and admin UI.
+7. Audit log.
+8. Maintenance/reconciliation command.
+9. Daily local PostgreSQL backup command.
+10. Azure/systemd/Nginx deployment material.
+11. GitHub CI.

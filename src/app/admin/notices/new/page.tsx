@@ -1,0 +1,4 @@
+"use client";
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+export default function NewNoticePage(){ const router=useRouter(); const [error,setError]=useState(""); async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);const r=await fetch("/api/notices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:f.get("title"),body:f.get("body")})});const d=await r.json();if(!r.ok){setError(d.error??"Create failed");return;}router.push(`/admin/notices/${d.id}`);} return <><h1>New notice</h1>{error&&<div className="alert">{error}</div>}<form className="form" onSubmit={submit}><label>Title<input name="title" required/></label><label>Body<textarea name="body" required/></label><div className="actions"><button className="btn">Create draft</button><a className="btn secondary" href="/admin/notices">Cancel</a></div></form></> }

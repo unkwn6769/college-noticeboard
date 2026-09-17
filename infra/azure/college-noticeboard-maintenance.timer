@@ -1,5 +1,5 @@
 [Unit]
-Description=Run College Noticeboard maintenance periodically
+Description=Hourly College Noticeboard maintenance
 
 [Timer]
 OnBootSec=10m

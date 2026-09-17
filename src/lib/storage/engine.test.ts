@@ -57,6 +57,21 @@ describe("StorageEngine", () => {
     }
   });
 
+  it("generates unique storage keys", async () => {
+    const engine = await createEngine();
+
+    const first = engine.createStorageKey();
+    const second = engine.createStorageKey();
+
+    expect(first).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(second).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(first).not.toBe(second);
+  });
+
   it("streams data and calculates SHA-256", async () => {
     const engine = await createEngine();
 

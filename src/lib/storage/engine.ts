@@ -88,6 +88,12 @@ export class StorageEngine {
     ]);
   }
 
+  createStorageKey(): string {
+    const storageKey = randomUUID();
+    assertStorageKey(storageKey);
+    return storageKey;
+  }
+
   async createStagingFile(): Promise<{
     uploadId: string;
     stagingPath: string;

@@ -3,10 +3,16 @@ const KEY_LENGTH = 64;
 const N = 32768;
 const r = 8;
 const p = 1;
+const MAXMEM = 64 * 1024 * 1024;
 
 function deriveKey(password: string, salt: Buffer, options: { N: number; r: number; p: number }): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    scryptCallback(password, salt, KEY_LENGTH, options, (error, derived) => {
+    scryptCallback(
+      password,
+      salt,
+      KEY_LENGTH,
+      { ...options, maxmem: MAXMEM },
+      (error, derived) => {
       if (error) {
         reject(error);
         return;

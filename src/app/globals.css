@@ -343,3 +343,79 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
 .public-archive-root-note {
   max-width:760px;
 }
+
+.public-notice-attachments {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid #eaecf0;
+}
+
+.public-notice-attachments-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.public-notice-attachment-list,
+.admin-attachment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.public-notice-attachment,
+.admin-attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fcfcfd;
+}
+
+.public-notice-attachment-name,
+.admin-attachment-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.admin-attachment-upload {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 12px;
+}
+
+.admin-attachment-existing {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+}
+
+.admin-attachment-id {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .public-notice-attachment,
+  .admin-attachment-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .public-notice-attachment .btn,
+  .admin-attachment-row .actions {
+    width: 100%;
+  }
+
+  .admin-attachment-existing {
+    grid-template-columns: 1fr;
+  }
+}

@@ -373,7 +373,6 @@ async function insertStagingRows(client, items, actorId) {
       Buffer.from(item.sha256, "hex"),
       item.storageKey,
       actorId,
-      "LEGACY_IMPORT",
       item.itemId,
       item.department,
       item.relativePath,

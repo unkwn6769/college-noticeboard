@@ -167,3 +167,10 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
 .public-file-detail-actions { margin-top:22px; padding-top:18px; border-top:1px solid #eaecf0; }
 @media (max-width: 800px) { .public-archive-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width: 560px) { .public-archive-grid,.public-file-detail-grid { grid-template-columns:1fr; } .public-file-row { padding:14px; } .public-file-detail { padding:20px; } .public-pagination { grid-template-columns:1fr; justify-items:center; } .public-pagination > :last-child { justify-self:auto; } }
+
+.public-notice-detail { max-width: 860px; }
+.public-notice-detail-meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-bottom:18px; }
+.public-tag { display:inline-flex; align-items:center; min-height:24px; padding:0 9px; border-radius:999px; background:#f2f4f7; color:#475467; font-size:11px; font-weight:800; }
+.public-notice-date { color:#667085; font-size:12px; }
+.checkbox-field { display:flex; align-items:center; gap:9px; }
+.checkbox-field input { width:auto; }

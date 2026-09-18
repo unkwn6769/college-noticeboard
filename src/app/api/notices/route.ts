@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin } from "@/src/lib/security";
 import { jsonError } from "@/src/lib/http";
 
-export const runtime = "nodejs";
+export const runtime="nodejs";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -14,7 +14,9 @@ export async function GET(request: Request) {
     if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) return jsonError("Unauthorized", 401);
     return NextResponse.json({ notices: await listAdminNotices() });
   }
-  return NextResponse.json({ notices: await listPublishedNotices(url.searchParams.get("q") ?? "") });
+  return NextResponse.json({
+    notices: await listPublishedNotices(url.searchParams.get("q") ?? ""),
+  });
 }
 
 export async function POST(request: Request) {
@@ -22,9 +24,24 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const user = await getCurrentUser();
     if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) return jsonError("Unauthorized", 401);
-    const body = (await request.json()) as { title?: string; body?: string };
+    const body = (await request.json()) as {
+      title?: string;
+      body?: string;
+      department?: unknown;
+      category?: unknown;
+      isPinned?: unknown;
+    };
     if (!body.title?.trim() || !body.body?.trim()) return jsonError("Title and body are required");
-    const id = await createNotice({ title: body.title, body: body.body, authorId: user.id });
+    const id = await createNotice({
+      title: body.title,
+      body: body.body,
+      authorId: user.id,
+      department: body.department,
+      category: body.category,
+      isPinned: body.isPinned,
+    });
     return NextResponse.json({ id }, { status: 201 });
-  } catch (error) { return jsonError(error instanceof Error ? error.message : "Create failed"); }
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Create failed");
+  }
 }

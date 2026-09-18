@@ -317,3 +317,24 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
     padding-top:2px;
   }
 }
+
+/* Public department detail stats */
+.public-department-hero-stats {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(170px,1fr));
+  gap:12px;
+  min-width:360px;
+}
+
+.public-department-hero-date {
+  font-size:18px !important;
+  line-height:1.25;
+}
+
+@media (max-width: 700px) {
+  .public-department-hero-stats {
+    width:100%;
+    min-width:0;
+    grid-template-columns:1fr;
+  }
+}

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import PublicNav from "@/src/components/PublicNav";
 import PublicFooter from "@/src/components/PublicFooter";
 import SectionHeader from "@/src/components/SectionHeader";
-import { getDepartment } from "@/src/lib/departments";
+import { getDepartment, listDepartmentStats } from "@/src/lib/departments";
 import { listArchiveDirectory } from "@/src/lib/archive";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,19 @@ function formatBytes(value: string): string {
     unit += 1;
   } while (size >= 1024 && unit < units.length - 1);
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "No archive update yet";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No archive update yet";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function encodePath(path: string): string {
@@ -48,6 +61,12 @@ export default async function DepartmentPage({
   const department = getDepartment(slug);
   if (!department) notFound();
 
+  const departmentStats = (await listDepartmentStats()).find(
+    (item) => item.slug === department.slug,
+  );
+
+  if (!departmentStats) notFound();
+
   const page = Number.parseInt(query.page ?? "1", 10);
   let archive;
   try {
@@ -73,9 +92,18 @@ export default async function DepartmentPage({
             <h1>{department.name}</h1>
             <p className="lead">{department.description}</p>
           </div>
-          <div className="public-department-hero-stat">
-            <span className="stat-label">Archived resources</span>
-            <strong>{archive.totalDepartmentFiles.toLocaleString("en-IN")}</strong>
+          <div className="public-department-hero-stats">
+            <div className="public-department-hero-stat">
+              <span className="stat-label">Archived resources</span>
+              <strong>{archive.totalDepartmentFiles.toLocaleString("en-IN")}</strong>
+            </div>
+
+            <div className="public-department-hero-stat">
+              <span className="stat-label">Latest archive update</span>
+              <strong className="public-department-hero-date">
+                {formatDate(departmentStats.latestUpdate)}
+              </strong>
+            </div>
           </div>
         </section>
 

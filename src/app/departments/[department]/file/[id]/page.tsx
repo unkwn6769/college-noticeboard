@@ -58,7 +58,12 @@ export default async function ArchiveFilePage({
             <code>{file.legacy_relative_path ?? "—"}</code>
           </div>
           <div className="public-file-detail-actions">
-            <span className="muted">Public file download is deliberately kept behind the dedicated download-authorization milestone.</span>
+            <a className="btn" href={`/api/files/${file.id}`}>
+              Download file
+            </a>
+            <span className="muted">
+              This active legacy archive resource is available for public download.
+            </span>
           </div>
         </article>
       </main>

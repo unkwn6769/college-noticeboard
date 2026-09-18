@@ -3,14 +3,16 @@ import { getDbPool, withTransaction } from "@/src/lib/db/pool";
 import { audit } from "@/src/lib/audit";
 import { assertUuid } from "@/src/lib/security";
 
-export async function listPublishedNotices(query = "") {
+export async function listPublishedNotices(query = "", limit = 50) {
   const q = query.trim();
+  const boundedLimit = Number.isSafeInteger(limit) ? Math.min(50, Math.max(1, limit)) : 50;
   const result = await getDbPool().query(
     `SELECT n.id, n.title, n.body, n.published_at, n.updated_at, u.display_name AS author
        FROM notices n JOIN users u ON u.id = n.author_id
       WHERE n.status='PUBLISHED'
         AND ($1 = '' OR n.title ILIKE '%' || $1 || '%' OR n.body ILIKE '%' || $1 || '%')
-      ORDER BY n.published_at DESC`, [q],
+      ORDER BY n.published_at DESC
+      LIMIT $2`, [q, boundedLimit],
   );
   return result.rows;
 }

@@ -79,9 +79,20 @@ export async function listFiles(filters: FileListFilters = {}): Promise<Paginate
     offset,
   ];
 
+  const meaningfulLegacyPathSql = `
+    CASE
+      WHEN f.origin_type = 'LEGACY_IMPORT'
+        AND f.legacy_department IS NOT NULL
+        AND f.legacy_relative_path IS NOT NULL
+        AND left(f.legacy_relative_path, length(f.legacy_department) + 1) = f.legacy_department || '/'
+      THEN substring(f.legacy_relative_path FROM length(f.legacy_department) + 2)
+      ELSE f.legacy_relative_path
+    END
+  `;
+
   const where = `
     WHERE
-      ($1 = '' OR f.original_name ILIKE '%' || $1 || '%' OR f.legacy_relative_path ILIKE '%' || $1 || '%')
+      ($1 = '' OR f.original_name ILIKE '%' || $1 || '%' OR (${meaningfulLegacyPathSql}) ILIKE '%' || $1 || '%')
       AND ($2::text IS NULL OR f.legacy_department = $2)
       AND ($3::text IS NULL OR f.origin_type = $3)
       AND ($4::file_state IS NULL OR f.state = $4)

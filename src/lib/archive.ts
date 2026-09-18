@@ -16,6 +16,7 @@ export type ArchiveFile = {
   sha256: string;
   created_at: string;
   updated_at: string;
+  legacy_department: string | null;
   legacy_relative_path: string | null;
 };
 
@@ -168,6 +169,33 @@ export async function listArchiveDirectory(input: {
   };
 }
 
+export async function listRecentArchiveFiles(limit = 8): Promise<ArchiveFile[]> {
+  const boundedLimit = Number.isSafeInteger(limit)
+    ? Math.min(12, Math.max(1, limit))
+    : 8;
+
+  const result = await getDbPool().query<ArchiveFile>(
+    `SELECT
+       f.id,
+       f.original_name,
+       f.mime_type,
+       f.size_bytes,
+       encode(f.sha256, 'hex') AS sha256,
+       f.created_at,
+       f.updated_at,
+       f.legacy_department,
+       f.legacy_relative_path
+     FROM files f
+     WHERE f.state = 'ACTIVE'
+       AND f.origin_type = 'LEGACY_IMPORT'
+     ORDER BY f.created_at DESC, f.id DESC
+     LIMIT $1`,
+    [boundedLimit],
+  );
+
+  return result.rows;
+}
+
 export async function getArchiveFile(input: { department: string; id: string }): Promise<ArchiveFile | null> {
   assertUuid(input.id);
   const department = input.department.trim().slice(0, 128);
@@ -182,6 +210,7 @@ export async function getArchiveFile(input: { department: string; id: string }):
        encode(f.sha256, 'hex') AS sha256,
        f.created_at,
        f.updated_at,
+       f.legacy_department,
        f.legacy_relative_path
      FROM files f
      WHERE f.id = $1

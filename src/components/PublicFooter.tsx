@@ -7,10 +7,12 @@ export default function PublicFooter() {
           <p>Official notices, departmental resources and examination information.</p>
         </div>
         <div className="public-footer-links">
-          <a href="/">Home</a>
-          <a href="/departments">Departments</a>
-          <a href="/login">Admin</a>
-        </div>
+            <a href="/">Home</a>
+            <a href="/#notices">Notices</a>
+            <a href="/departments">Departments</a>
+            <a href="/search">Search</a>
+            <a href="/login">Admin</a>
+          </div>
       </div>
     </footer>
   );

@@ -4,22 +4,38 @@ import { audit } from "@/src/lib/audit";
 import { assertUuid } from "@/src/lib/security";
 import { normalizeNoticeMetadata } from "./notice-metadata";
 
-export async function listPublishedNotices(query = "", limit = 50) {
+export async function listPublishedNotices(
+  query = "",
+  limit = 50,
+  options: { department?: string } = {},
+) {
   const q = query.trim();
-  const boundedLimit = Number.isSafeInteger(limit) ? Math.min(50, Math.max(1, limit)) : 50;
+  const department = options.department?.trim() || null;
+  const boundedLimit = Number.isSafeInteger(limit)
+    ? Math.min(50, Math.max(1, limit))
+    : 50;
+
   const result = await getDbPool().query(
     `SELECT n.id, n.title, n.body, n.department, n.category, n.is_pinned,
             n.published_at, n.updated_at, u.display_name AS author
-       FROM notices n JOIN users u ON u.id = n.author_id
-      WHERE n.status='PUBLISHED'
-        AND ($1 = '' OR n.title ILIKE '%' || $1 || '%' OR n.body ILIKE '%' || $1 || '%'
-             OR n.department ILIKE '%' || $1 || '%' OR n.category ILIKE '%' || $1 || '%')
-      ORDER BY n.is_pinned DESC, n.published_at DESC
-      LIMIT $2`, [q, boundedLimit],
+       FROM notices n
+       JOIN users u ON u.id = n.author_id
+      WHERE n.status = 'PUBLISHED'
+        AND (
+          $1 = ''
+          OR n.title ILIKE '%' || $1 || '%'
+          OR n.body ILIKE '%' || $1 || '%'
+          OR n.department ILIKE '%' || $1 || '%'
+          OR n.category ILIKE '%' || $1 || '%'
+        )
+        AND ($3::text IS NULL OR n.department = $3)
+      ORDER BY n.is_pinned DESC, n.published_at DESC, n.id DESC
+      LIMIT $2`,
+    [q, boundedLimit, department],
   );
+
   return result.rows;
 }
-
 export async function getNotice(id: string, includeDrafts = false) {
   assertUuid(id);
   const result = await getDbPool().query(

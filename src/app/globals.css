@@ -50,6 +50,27 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
 .public-nav { display:flex; gap:20px; font-size:13px; align-items:center; }
 .public-nav a { color:#667085; font-weight:600; transition:color .15s ease; }
 .public-nav a:hover { color:#101828; }
+.public-nav-main,
+.public-nav-admin {
+  display:flex;
+  align-items:center;
+}
+
+.public-nav-main {
+  gap:20px;
+}
+
+.public-nav-admin {
+  margin-left:4px;
+  padding-left:16px;
+  border-left:1px solid #e5e7eb;
+}
+
+.public-nav-admin a {
+  color:#344054;
+  font-weight:700;
+}
+
 .public-page { padding-top:52px; }
 .public-hero { max-width:820px; padding:32px 0 30px; }
 .public-online-pill { display:inline-flex; align-items:center; gap:8px; padding:7px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; color:#667085; font-size:12px; font-weight:700; box-shadow:0 1px 3px rgba(16,24,40,.04); }
@@ -126,6 +147,21 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
 }
 @media (max-width: 700px) {
   .public-topbar-inner { min-height:64px; align-items:flex-start; padding:12px 0; }
+  .public-nav {
+    width:100%;
+    gap:12px;
+  }
+
+  .public-nav-main {
+    flex-wrap:wrap;
+    gap:12px;
+  }
+
+  .public-nav-admin {
+    margin-left:0;
+    padding-left:12px;
+  }
+
   .public-topbar-inner, .public-nav { flex-wrap:wrap; }
   .public-nav { gap:12px; }
   .public-hero h1 { font-size:clamp(42px,14vw,58px); }

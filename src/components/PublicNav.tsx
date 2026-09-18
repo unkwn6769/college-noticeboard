@@ -12,11 +12,16 @@ export default function PublicNav() {
           </span>
         </Link>
         <nav className="public-nav" aria-label="Primary navigation">
-          <Link href="/">Home</Link>
-          <Link href="/#notices">Notices</Link>
-          <Link href="/departments">Departments</Link>
-          <Link href="/search">Search</Link>
-          <Link href="/login">Admin</Link>
+          <div className="public-nav-main">
+            <Link href="/">Home</Link>
+            <Link href="/#notices">Notices</Link>
+            <Link href="/departments">Departments</Link>
+            <Link href="/search">Search</Link>
+          </div>
+
+          <div className="public-nav-admin">
+            <Link href="/login">Admin</Link>
+          </div>
         </nav>
       </div>
     </header>

@@ -64,7 +64,7 @@ function parseArgs(argv) {
 
 Usage:
   npm run legacy:import -- --dry-run
-  npm run legacy:import -- --limit 10
+  npm run legacy:import -- --import --limit 10
   npm run legacy:import -- --department cse-noticeboard --limit 10
   npm run legacy:import -- --verify-only --limit 10
   npm run legacy:import -- --import --limit 10
@@ -459,7 +459,7 @@ async function verifyExistingActive(row, item) {
   if (row.legacy_relative_path !== item.relativePath) {
     throw new Error(`Existing legacy item relative_path mismatch: ${item.itemId}`);
   }
-  if (row.size_bytes !== item.sizeBytes) {
+  if (Number(row.size_bytes) !== item.sizeBytes) {
     throw new Error(`Existing legacy item size mismatch: ${item.itemId}`);
   }
   const dbSha = Buffer.from(row.sha256 ?? "").toString("hex").toLowerCase();

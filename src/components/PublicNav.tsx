@@ -16,6 +16,7 @@ export default function PublicNav() {
             <Link href="/">Home</Link>
             <Link href="/#notices">Notices</Link>
             <Link href="/departments">Departments</Link>
+            <Link href="/archive">Archive</Link>
             <Link href="/search">Search</Link>
           </div>
 

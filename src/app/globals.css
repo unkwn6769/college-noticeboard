@@ -338,3 +338,8 @@ th,td { padding:12px 14px; border-bottom:1px solid #e2e8f0; text-align:left; fon
     grid-template-columns:1fr;
   }
 }
+
+/* Public dedicated archive browsing */
+.public-archive-root-note {
+  max-width:760px;
+}

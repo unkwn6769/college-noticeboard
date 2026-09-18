@@ -1,13 +1,13 @@
 "use client";
 import { useEffect,useState } from "react";
-import { useParams,useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { DEPARTMENTS } from "@/src/lib/department-registry";
 
 type NoticeState={title:string;body:string;department:string|null;category:string|null;is_pinned:boolean;status:string};
 
 export default function EditNoticePage(){
   const params=useParams<{id:string}>();
-  const router=useRouter();
+
   const [notice,setNotice]=useState<NoticeState|null>(null);
   const [error,setError]=useState("");
   useEffect(()=>{fetch(`/api/notices/${params.id}`).then(r=>r.json()).then(d=>{if(d.notice)setNotice(d.notice);else setError(d.error??"Not found")});},[params.id]);
@@ -32,7 +32,7 @@ const d=await r.json();
 setError(d.error??"Save failed");
 return;
 }
-router.refresh();
+window.location.reload();
 }
   async function act(action:string){const r=await fetch(`/api/notices/${params.id}/${action}`,{method:"POST"});if(!r.ok){const d=await r.json();setError(d.error??"Operation failed");return;}const x=await fetch(`/api/notices/${params.id}`);const d=await x.json();setNotice(d.notice);}
   return <><div className="actions" style={{justifyContent:"space-between"}}><div><h1>Edit notice</h1><div className="meta">Status: {notice.status}{notice.is_pinned ? " · Pinned" : ""}</div></div><a className="btn secondary" href="/admin/notices">Back</a></div>{error&&<div className="alert">{error}</div>}<div className="form">

@@ -45,7 +45,7 @@ export default async function AdminPage() {
         </div>
         <div className="card">
           <h2>File records</h2>
-          <p className="muted">{files.length} records returned.</p>
+          <p className="muted">{files.total.toLocaleString()} records available.</p>
           <Link className="btn secondary" href="/admin/files">Manage files</Link>
         </div>
       </div>

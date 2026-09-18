@@ -48,10 +48,61 @@ function parseSizeHint(value: string | null): number | null {
   return size;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) return jsonError("Unauthorized", 401);
-  return NextResponse.json({ files: await listFiles() });
+  if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) {
+    return jsonError("Unauthorized", 401);
+  }
+
+  const url = new URL(request.url);
+
+  const page = Number(url.searchParams.get("page") ?? "1");
+  const pageSize = Number(url.searchParams.get("pageSize") ?? "50");
+  const search = url.searchParams.get("search") ?? "";
+  const department = url.searchParams.get("department") ?? "";
+  const origin = url.searchParams.get("origin") ?? "";
+  const state = url.searchParams.get("state") ?? "";
+
+  if (!Number.isSafeInteger(page) || page < 1) {
+    return jsonError("Invalid page", 400);
+  }
+
+  if (!Number.isSafeInteger(pageSize) || pageSize < 10 || pageSize > 100) {
+    return jsonError("pageSize must be between 10 and 100", 400);
+  }
+
+  if (search.length > 100 || department.length > 128) {
+    return jsonError("Search/filter value is too long", 400);
+  }
+
+  if (origin && origin !== "USER_UPLOAD" && origin !== "LEGACY_IMPORT") {
+    return jsonError("Invalid origin", 400);
+  }
+
+  if (
+    state &&
+    state !== "STAGING" &&
+    state !== "ACTIVE" &&
+    state !== "QUARANTINED" &&
+    state !== "PURGED"
+  ) {
+    return jsonError("Invalid state", 400);
+  }
+
+  const result = await listFiles({
+    page,
+    pageSize,
+    search,
+    department,
+    origin: origin
+      ? (origin as "USER_UPLOAD" | "LEGACY_IMPORT")
+      : undefined,
+    state: state
+      ? (state as "STAGING" | "ACTIVE" | "QUARANTINED" | "PURGED")
+      : undefined,
+  });
+
+  return NextResponse.json(result);
 }
 
 export async function POST(request: Request) {

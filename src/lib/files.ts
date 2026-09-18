@@ -13,6 +13,10 @@ export type FileRecord = {
   state: "STAGING" | "ACTIVE" | "QUARANTINED" | "PURGED";
   current_version_id: string | null;
   version_number?: number;
+  origin_type?: "USER_UPLOAD" | "LEGACY_IMPORT";
+  legacy_item_id?: string | null;
+  legacy_department?: string | null;
+  legacy_relative_path?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -21,16 +25,112 @@ export function hashHex(hash: Buffer): string {
   return hash.toString("hex");
 }
 
-export async function listFiles() {
-  const result = await getDbPool().query(
-    `SELECT f.id, f.original_name, f.mime_type, f.size_bytes, encode(f.sha256, 'hex') AS sha256,
-            f.storage_key, f.state, f.current_version_id, f.created_at, f.updated_at,
-            COALESCE(v.version_number, 1) AS version_number
+export type FileListFilters = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  department?: string;
+  origin?: "USER_UPLOAD" | "LEGACY_IMPORT";
+  state?: "STAGING" | "ACTIVE" | "QUARANTINED" | "PURGED";
+};
+
+export type PaginatedFileList = {
+  files: FileRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+function normalizePage(value: number | undefined): number {
+  if (!Number.isSafeInteger(value) || value === undefined || value < 1) return 1;
+  return value;
+}
+
+function normalizePageSize(value: number | undefined): number {
+  if (!Number.isSafeInteger(value) || value === undefined) return 50;
+  return Math.min(100, Math.max(10, value));
+}
+
+function normalizeSearch(value: string | undefined): string {
+  return (value ?? "").trim().slice(0, 100);
+}
+
+function normalizeOptionalText(value: string | undefined): string | null {
+  const normalized = (value ?? "").trim();
+  return normalized.length > 0 ? normalized.slice(0, 128) : null;
+}
+
+export async function listFiles(filters: FileListFilters = {}): Promise<PaginatedFileList> {
+  const page = normalizePage(filters.page);
+  const pageSize = normalizePageSize(filters.pageSize);
+  const search = normalizeSearch(filters.search);
+  const department = normalizeOptionalText(filters.department);
+  const origin = filters.origin ?? null;
+  const state = filters.state ?? null;
+  const offset = (page - 1) * pageSize;
+
+  const params = [
+    search,
+    department,
+    origin,
+    state,
+    pageSize,
+    offset,
+  ];
+
+  const where = `
+    WHERE
+      ($1 = '' OR f.original_name ILIKE '%' || $1 || '%' OR f.legacy_relative_path ILIKE '%' || $1 || '%')
+      AND ($2::text IS NULL OR f.legacy_department = $2)
+      AND ($3::text IS NULL OR f.origin_type = $3)
+      AND ($4::file_state IS NULL OR f.state = $4)
+  `;
+
+  const pool = getDbPool();
+
+  const [rowsResult, countResult] = await Promise.all([
+    pool.query(
+      `SELECT
+         f.id,
+         f.original_name,
+         f.mime_type,
+         f.size_bytes,
+         encode(f.sha256, 'hex') AS sha256,
+         f.storage_key,
+         f.state,
+         f.current_version_id,
+         f.origin_type,
+         f.legacy_item_id,
+         f.legacy_department,
+         f.legacy_relative_path,
+         f.created_at,
+         f.updated_at,
+         COALESCE(v.version_number, 1) AS version_number
        FROM files f
        LEFT JOIN file_versions v ON v.id = f.current_version_id
-      ORDER BY f.created_at DESC`,
-  );
-  return result.rows;
+       ${where}
+       ORDER BY f.created_at DESC, f.id DESC
+       LIMIT $5 OFFSET $6`,
+      params,
+    ),
+    pool.query(
+      `SELECT COUNT(*)::bigint AS total
+       FROM files f
+       ${where}`,
+      params.slice(0, 4),
+    ),
+  ]);
+
+  const total = Number(countResult.rows[0]?.total ?? 0);
+
+  return {
+    files: rowsResult.rows,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export async function createFileRecord(input: {

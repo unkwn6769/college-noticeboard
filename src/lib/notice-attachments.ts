@@ -53,7 +53,7 @@ export async function attachFileToNotice(
 
   return withTransaction(async (client) => {
     const notice = await client.query(
-      `SELECT id FROM notices WHERE id = $1 FOR SHARE`,
+      `SELECT id FROM notices WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
       [noticeId],
     );
     if (notice.rowCount !== 1) throw new Error("NOTICE_NOT_FOUND");

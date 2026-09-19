@@ -21,6 +21,7 @@ export async function listPublishedNotices(
        FROM notices n
        JOIN users u ON u.id = n.author_id
       WHERE n.status = 'PUBLISHED'
+        AND n.deleted_at IS NULL
         AND (
           $1 = ''
           OR n.title ILIKE '%' || $1 || '%'
@@ -36,6 +37,7 @@ export async function listPublishedNotices(
 
   return result.rows;
 }
+
 export async function getNotice(id: string, includeDrafts = false) {
   assertUuid(id);
   const result = await getDbPool().query(
@@ -43,7 +45,9 @@ export async function getNotice(id: string, includeDrafts = false) {
             n.status, n.published_at, n.created_at, n.updated_at,
             u.display_name AS author
        FROM notices n JOIN users u ON u.id=n.author_id
-      WHERE n.id=$1 ${includeDrafts ? "" : "AND n.status='PUBLISHED'"}`,
+      WHERE n.id=$1
+        AND n.deleted_at IS NULL
+        ${includeDrafts ? "" : "AND n.status='PUBLISHED'"}`,
     [id],
   );
   return result.rows[0] ?? null;
@@ -55,6 +59,7 @@ export async function listAdminNotices() {
             n.status, n.published_at, n.created_at, n.updated_at,
             u.display_name AS author
        FROM notices n JOIN users u ON u.id=n.author_id
+      WHERE n.deleted_at IS NULL
       ORDER BY n.updated_at DESC`,
   );
   return result.rows;
@@ -96,7 +101,7 @@ export async function updateNotice(id: string, input: {
     const result = await client.query(
       `UPDATE notices
           SET title=$1, body=$2, department=$3, category=$4, is_pinned=$5, updated_at=NOW()
-        WHERE id=$6`,
+        WHERE id=$6 AND deleted_at IS NULL`,
       [input.title.trim(), input.body, metadata.department, metadata.category, metadata.isPinned, id],
     );
     if (result.rowCount !== 1) throw new Error("NOTICE_NOT_FOUND");
@@ -109,7 +114,7 @@ export async function publishNotice(id: string, actorId: string) {
   await withTransaction(async (client) => {
     const result = await client.query(
       `UPDATE notices SET status='PUBLISHED', published_at=COALESCE(published_at,NOW()), updated_at=NOW()
-        WHERE id=$1 AND status <> 'PUBLISHED'`, [id],
+        WHERE id=$1 AND status <> 'PUBLISHED' AND deleted_at IS NULL`, [id],
     );
     if (result.rowCount !== 1) throw new Error("NOTICE_NOT_FOUND_OR_PUBLISHED");
     await audit("NOTICE_PUBLISHED", actorId, "notice", id, {}, client);
@@ -120,9 +125,65 @@ export async function archiveNotice(id: string, actorId: string) {
   assertUuid(id);
   await withTransaction(async (client) => {
     const result = await client.query(
-      `UPDATE notices SET status='ARCHIVED', updated_at=NOW() WHERE id=$1 AND status <> 'ARCHIVED'`, [id],
+      `UPDATE notices SET status='ARCHIVED', updated_at=NOW() WHERE id=$1 AND status <> 'ARCHIVED' AND deleted_at IS NULL`, [id],
     );
     if (result.rowCount !== 1) throw new Error("NOTICE_NOT_FOUND_OR_ARCHIVED");
     await audit("NOTICE_ARCHIVED", actorId, "notice", id, {}, client);
   });
+}
+
+// ── Recycle bin ──────────────────────────────────────────────────────────────
+
+export async function softDeleteNotice(id: string, actorId: string) {
+  assertUuid(id);
+  await withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE notices SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, [id],
+    );
+    if (result.rowCount !== 1) throw new Error("NOTICE_NOT_FOUND");
+    await audit("NOTICE_DELETED", actorId, "notice", id, {}, client);
+  });
+}
+
+export async function restoreNotice(id: string, actorId: string) {
+  assertUuid(id);
+  await withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE notices SET deleted_at=NULL, status='DRAFT', updated_at=NOW() WHERE id=$1 AND deleted_at IS NOT NULL`, [id],
+    );
+    if (result.rowCount !== 1) throw new Error("NOTICE_NOT_IN_RECYCLE_BIN");
+    await audit("NOTICE_RESTORED", actorId, "notice", id, {}, client);
+  });
+}
+
+export async function permanentlyDeleteNotice(id: string, actorId: string) {
+  assertUuid(id);
+  await withTransaction(async (client) => {
+    const existing = await client.query(
+      `SELECT id, title FROM notices WHERE id=$1 AND deleted_at IS NOT NULL`, [id],
+    );
+    if (existing.rows.length === 0) throw new Error("NOTICE_NOT_IN_RECYCLE_BIN");
+    await client.query(`DELETE FROM notice_attachments WHERE notice_id=$1`, [id]);
+    await client.query(`DELETE FROM notices WHERE id=$1`, [id]);
+    await audit(
+      "NOTICE_PERMANENTLY_DELETED",
+      actorId,
+      "notice",
+      id,
+      { title: existing.rows[0].title },
+      client,
+    );
+  });
+}
+
+export async function listDeletedNotices() {
+  const result = await getDbPool().query(
+    `SELECT n.id, n.title, n.body, n.department, n.category, n.is_pinned,
+            n.status, n.published_at, n.created_at, n.updated_at, n.deleted_at,
+            u.display_name AS author
+       FROM notices n JOIN users u ON u.id=n.author_id
+      WHERE n.deleted_at IS NOT NULL
+      ORDER BY n.deleted_at DESC`,
+  );
+  return result.rows;
 }

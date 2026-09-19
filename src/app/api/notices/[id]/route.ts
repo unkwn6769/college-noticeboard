@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getNotice, updateNotice } from "@/src/lib/notices";
+import { getNotice, updateNotice, softDeleteNotice } from "@/src/lib/notices";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin, assertUuid } from "@/src/lib/security";
 import { jsonError } from "@/src/lib/http";
 
-export const runtime="nodejs";
+export const runtime = "nodejs";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -39,5 +39,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: true });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Update failed");
+  }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    assertSameOrigin(request);
+    const user = await getCurrentUser();
+    if (!user || !["ADMIN", "OWNER"].includes(user.role)) return jsonError("Unauthorized", 401);
+    const { id } = await context.params;
+    try { assertUuid(id); } catch { return jsonError("Invalid notice ID", 400); }
+    await softDeleteNotice(id, user.id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NOTICE_NOT_FOUND") {
+      return jsonError("Notice not found", 404);
+    }
+    return jsonError(error instanceof Error ? error.message : "Delete failed");
   }
 }

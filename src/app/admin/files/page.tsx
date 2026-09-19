@@ -188,7 +188,7 @@ export default function FilesPage() {
       <div className="card" style={{ marginBottom: 20 }}>
         <form
           onSubmit={applySearch}
-          style={{ display: "grid", gridTemplateColumns: "minmax(220px, 2fr) repeat(3, minmax(150px, 1fr)) auto", gap: 10, alignItems: "end" }}
+          className="admin-search-form"
         >
           <label>
             <span className="muted">Search</span>

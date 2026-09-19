@@ -96,6 +96,11 @@ export async function listFiles(filters: FileListFilters = {}): Promise<Paginate
       AND ($2::text IS NULL OR f.legacy_department = $2)
       AND ($3::text IS NULL OR f.origin_type = $3)
       AND ($4::file_state IS NULL OR f.state = $4)
+      AND ($3::text IS DISTINCT FROM 'LEGACY_IMPORT' OR $4::file_state IS DISTINCT FROM 'ACTIVE' OR NOT EXISTS (
+        SELECT 1 FROM legacy_scanner_items s
+        WHERE s.legacy_relative_path = f.legacy_relative_path
+          AND s.status = 'IMPORTED' AND s.file_id IS NOT NULL AND s.file_id <> f.id
+      ))
   `;
 
   const pool = getDbPool();

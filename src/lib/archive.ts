@@ -90,6 +90,7 @@ export async function listArchiveDirectory(input: {
       WHERE f.state = 'ACTIVE'
         AND f.origin_type = 'LEGACY_IMPORT'
         AND f.legacy_department = $1
+        AND NOT EXISTS (SELECT 1 FROM legacy_scanner_items s WHERE s.legacy_relative_path=f.legacy_relative_path AND s.status='IMPORTED' AND s.file_id IS NOT NULL AND s.file_id<>f.id)
     ),
     at_location AS (
       SELECT
@@ -139,6 +140,7 @@ export async function listArchiveDirectory(input: {
      FROM files f
      WHERE f.state = 'ACTIVE'
        AND f.origin_type = 'LEGACY_IMPORT'
+       AND NOT EXISTS (SELECT 1 FROM legacy_scanner_items s WHERE s.legacy_relative_path=f.legacy_relative_path AND s.status='IMPORTED' AND s.file_id IS NOT NULL AND s.file_id<>f.id)
        AND f.legacy_department = $1`,
     [department],
   );
@@ -217,6 +219,7 @@ export async function getArchiveFile(input: { department: string; id: string }):
        AND f.state = 'ACTIVE'
        AND f.origin_type = 'LEGACY_IMPORT'
        AND f.legacy_department = $2
+       AND NOT EXISTS (SELECT 1 FROM legacy_scanner_items s WHERE s.legacy_relative_path=f.legacy_relative_path AND s.status='IMPORTED' AND s.file_id IS NOT NULL AND s.file_id<>f.id)
      LIMIT 1`,
     [input.id, department],
   );

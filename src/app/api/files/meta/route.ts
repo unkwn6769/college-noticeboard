@@ -19,6 +19,7 @@ export async function GET() {
       WHERE origin_type = 'LEGACY_IMPORT'
         AND state = 'ACTIVE'
         AND legacy_department IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM legacy_scanner_items s WHERE s.legacy_relative_path=files.legacy_relative_path AND s.status='IMPORTED' AND s.file_id IS NOT NULL AND s.file_id<>files.id)
       ORDER BY legacy_department`,
   );
 

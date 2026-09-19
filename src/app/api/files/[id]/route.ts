@@ -26,8 +26,10 @@ export async function GET(
       size_bytes: string;
       state: "ACTIVE";
       origin_type: "USER_UPLOAD" | "LEGACY_IMPORT";
+      is_current: boolean;
     }>(
-      `SELECT storage_key,mime_type,original_name,size_bytes,state,origin_type
+      `SELECT storage_key,mime_type,original_name,size_bytes,state,origin_type,
+              NOT EXISTS (SELECT 1 FROM legacy_scanner_items s WHERE s.legacy_relative_path=files.legacy_relative_path AND s.status='IMPORTED' AND s.file_id IS NOT NULL AND s.file_id<>files.id) AS is_current
        FROM files
        WHERE id=$1 AND state='ACTIVE'
        LIMIT 1`,
@@ -35,7 +37,7 @@ export async function GET(
     );
 
     const row = result.rows[0];
-    if (!row) return jsonError("File not found", 404);
+    if (!row || (row.origin_type === "LEGACY_IMPORT" && !row.is_current)) return jsonError("File not found", 404);
 
     const permission = getDownloadPermission(row, user);
     if (permission === "DENIED") {

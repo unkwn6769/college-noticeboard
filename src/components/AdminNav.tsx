@@ -56,6 +56,7 @@ export default function AdminNav() {
           <a href="/admin/audit" className={isActive("/admin/audit") ? "nav-active" : ""}>Audit</a>
           <a href="/admin/storage" className={isActive("/admin/storage") ? "nav-active" : ""}>Storage</a>
           <a href="/admin/integrity" className={isActive("/admin/integrity") ? "nav-active" : ""}>Integrity</a>
+          <a href="/admin/scanner" className={isActive("/admin/scanner") ? "nav-active" : ""}>Scanner</a>
           {isOwner && (
             <a href="/admin/users" className={isActive("/admin/users") ? "nav-active" : ""}>Users</a>
           )}

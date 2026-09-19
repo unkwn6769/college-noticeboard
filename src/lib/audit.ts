@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { getDbPool } from "@/src/lib/db/pool";
+import { getDbPool } from "./db/pool";
 
 export async function audit(
   eventType: string,

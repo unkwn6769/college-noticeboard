@@ -74,7 +74,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (!await engine.verify(storageKey, written.sizeBytes, written.sha256)) throw new Error("Final object verification failed");
 
       const versionId = randomUUID();
-      const result = await replaceFile({ fileId: id, versionId, originalName, mimeType, sizeBytes: written.sizeBytes, sha256: written.sha256, storageKey, actorId: user.id });
+      let result;
+      try {
+        result = await replaceFile({ fileId: id, versionId, originalName, mimeType, sizeBytes: written.sizeBytes, sha256: written.sha256, storageKey, actorId: user.id });
+      } catch (error) {
+        // The object is already published. If the DB transition failed the new
+        // object is unreferenced, so move it to quarantine instead of leaving
+        // live bytes in the active area with no record owning them.
+        await engine.quarantine(storageKey).catch(() => {});
+        throw error;
+      }
       return NextResponse.json({ ok: true, versionNumber: result.versionNumber, storageKey, physicalCleanup: "pending" });
     } catch (error) {
       return jsonError(error instanceof Error ? error.message : "Replacement failed", 400);

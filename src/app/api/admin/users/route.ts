@@ -9,7 +9,9 @@ import { jsonError } from "@/src/lib/http";
 export const runtime = "nodejs";
 export async function GET() {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "ADMIN" && user.role !== "OWNER")) return jsonError("Unauthorized", 401);
+  if (!user) return jsonError("Unauthorized", 401);
+  // User administration is owner-only: hiding the nav entry is not authorization.
+  if (user.role !== "OWNER") return jsonError("Owner privileges required", 403);
   const result = await getDbPool().query(`SELECT id,email,display_name AS "displayName",role,status,created_at,last_login_at FROM users ORDER BY created_at DESC`);
   return NextResponse.json({ users: result.rows });
 }

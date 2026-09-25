@@ -4,6 +4,7 @@ import { assertSameOrigin, assertUuid } from "@/src/lib/security";
 import { withTransaction, getDbPool } from "@/src/lib/db/pool";
 import { audit } from "@/src/lib/audit";
 import { getStorageEngine, STORAGE_ROOT } from "@/src/lib/storage/engine";
+import { purgeFileBytes } from "@/src/lib/file-purge";
 import { jsonError } from "@/src/lib/http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -112,14 +113,24 @@ export async function DELETE(
     if (!row) return jsonError("File not found", 404);
     if (row.state !== "QUARANTINED") return jsonError("File is not quarantined", 409);
 
-    const quarantinePath = await engine.findQuarantineObject(row.storage_key);
-
     // 1. FS Operation (Idempotent: if it fails halfway, we can retry)
-    if (quarantinePath) {
-      await engine.purgeQuarantine(quarantinePath);
+    // A permanent purge must destroy every byte still owned by the file: the
+    // current object plus any superseded version object whose quarantine has
+    // not been materialised yet. Marking those cleanup operations complete
+    // without removing their bytes would strand live objects in active storage.
+    const ownedKeys = await pool.query<{ storage_key: string }>(
+      `SELECT storage_key FROM file_versions WHERE file_id=$1
+        UNION
+       SELECT storage_key FROM cleanup_operations
+        WHERE file_id=$1 AND status IN ('PENDING','RUNNING','FAILED')`,
+      [id],
+    );
+    for (const key of new Set([row.storage_key, ...ownedKeys.rows.map((r) => r.storage_key)])) {
+      await purgeFileBytes(engine, key);
     }
 
     // 2. DB Transaction
+    let alreadyHandled = false;
     await withTransaction(async (client) => {
       const lockResult = await client.query<{ state: string }>(
         `SELECT state FROM files WHERE id=$1 FOR UPDATE`, [id]
@@ -127,7 +138,10 @@ export async function DELETE(
       const lockedRow = lockResult.rows[0];
 
       if (lockedRow.state !== "QUARANTINED") {
-        return; // Already handled or state changed, just ignore
+        // A concurrent request already purged this file; report the same
+        // conflict the sequential path reports instead of a false success.
+        alreadyHandled = true;
+        return;
       }
 
       await client.query(
@@ -147,6 +161,7 @@ export async function DELETE(
       );
     });
 
+    if (alreadyHandled) return jsonError("File is not quarantined", 409);
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return jsonError("Unauthorized", 401);

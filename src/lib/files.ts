@@ -222,11 +222,12 @@ export async function replaceFile(input: {
 export async function markDeleted(fileId: string, actorId: string) {
   assertUuid(fileId);
   return withTransaction(async (client) => {
-    const result = await client.query<{ storage_key: string }>(
-      `SELECT storage_key FROM files WHERE id = $1 AND state = 'ACTIVE' FOR UPDATE`, [fileId],
+    const result = await client.query<{ storage_key: string; state: string }>(
+      `SELECT storage_key, state FROM files WHERE id = $1 FOR UPDATE`, [fileId],
     );
     const row = result.rows[0];
-    if (!row) throw new Error("FILE_NOT_ACTIVE");
+    if (!row) throw new Error("FILE_NOT_FOUND");
+    if (row.state !== "ACTIVE") throw new Error("FILE_NOT_ACTIVE");
     const cleanupId = randomUUID();
     await client.query(
       `UPDATE files SET state='QUARANTINED', updated_at=NOW() WHERE id=$1`, [fileId],

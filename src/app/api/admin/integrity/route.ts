@@ -160,7 +160,16 @@ export async function GET(request: Request) {
   // ── 3. Orphaned storage objects (on disk but not in DB) ──────────────────
   let orphanCount = 0;
   try {
-    const allFilesResult = await db.query(`SELECT storage_key FROM files`);
+    // Only storage keys that are still logically live may own bytes on disk.
+    // A PURGED row owns nothing: leftover bytes for it are a leak, not a
+    // legitimate object, and must be reported instead of silently accepted.
+    const allFilesResult = await db.query(
+      `SELECT storage_key FROM files WHERE state <> 'PURGED'
+        UNION
+       SELECT v.storage_key FROM file_versions v
+         JOIN files f ON f.id = v.file_id
+        WHERE f.state <> 'PURGED'`,
+    );
     const knownKeys = new Set(allFilesResult.rows.map((f) => f.storage_key));
     const objects = await engine.scanObjects();
     for (const objPath of objects) {
@@ -175,7 +184,7 @@ export async function GET(request: Request) {
             type: "ORPHANED_STORAGE_OBJECT",
             severity: "warning",
             storageKey,
-            detail: `Storage object exists on disk but has no ACTIVE file record in DB: ${storageKey}`,
+            detail: `Storage object exists on disk but has no live (non-purged) file record in DB: ${storageKey}`,
           });
         }
       }

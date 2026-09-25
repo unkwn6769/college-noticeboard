@@ -111,10 +111,11 @@ for (const name of await readdir(stagingRoot)) {
 }
 
 // Reconcile filesystem objects against all authoritative DB storage keys.
+// Only live (non-purged) rows own bytes; leftover objects for PURGED rows are leaks.
 const dbKeys = new Set();
 const knownRows = [
-  await pool.query(`SELECT storage_key FROM files`),
-  await pool.query(`SELECT storage_key FROM file_versions`),
+  await pool.query(`SELECT storage_key FROM files WHERE state <> 'PURGED'`),
+  await pool.query(`SELECT v.storage_key FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.state <> 'PURGED'`),
 ];
 for (const result of knownRows) for (const row of result.rows) dbKeys.add(row.storage_key);
 

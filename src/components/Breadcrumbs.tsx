@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+
 type Crumb = {
   label: string;
   href?: string;
@@ -5,47 +8,59 @@ type Crumb = {
 
 type Props = {
   items: Crumb[];
-  /** Current page title; announced to assistive technology only. */
+  /** Extra context announced for the final crumb, e.g. its full untruncated name. */
   currentLabel?: string;
   className?: string;
+  /**
+   * Landmark name. Pages that legitimately show more than one trail (an
+   * archive location inside a department page) must pass a distinct value so
+   * a screen-reader landmark list still tells the trails apart.
+   */
+  label?: string;
 };
 
 /**
- * One breadcrumb implementation for the whole product. The final crumb is
- * marked `aria-current`; intermediate crumbs are links, and the label is
- * repeated in a visually hidden span so it is available to a screen reader
- * even when the visible text is truncated by CSS.
+ * The one breadcrumb implementation in the product.
+ *
+ * Semantics: a labelled `nav` landmark containing an ordered list, so the
+ * trail is announced as a hierarchy rather than a row of loose links. Every
+ * crumb except the last is a `next/link`; the last is a plain span carrying
+ * `aria-current="page"`, which is the only correct use of that attribute in a
+ * trail — it identifies one element, so a page must never render two trails
+ * that both claim the current page.
  */
-export default function Breadcrumbs({ items, currentLabel, className }: Props) {
+export default function Breadcrumbs({
+  items,
+  currentLabel,
+  className,
+  label = "Breadcrumb",
+}: Props) {
   if (items.length === 0) return null;
 
   return (
-    <nav className={`breadcrumbs${className ? ` ${className}` : ""}`} aria-label="Breadcrumb">
-      {items.map((item, index) => {
-        const isLast = index === items.length - 1;
-        return (
-          <span key={`${item.label}-${index}`} className="row row-2" style={{ gap: 2 }}>
-            {index > 0 ? (
-              <span className="breadcrumb-sep" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-            ) : null}
-            {item.href && !isLast ? (
-              <a href={item.href}>
-                {item.label}
-                <span className="sr-only"> (opens in the same page)</span>
-              </a>
-            ) : (
-              <span aria-current={isLast ? "page" : undefined} title={item.label}>
-                {item.label}
-                {isLast && currentLabel ? <span className="sr-only">{currentLabel}</span> : null}
-              </span>
-            )}
-          </span>
-        );
-      })}
+    <nav className={className} aria-label={label}>
+      <ol className="breadcrumbs">
+        {items.map((item, index) => {
+          const isLast = index === items.length - 1;
+          return (
+            <li key={`${item.label}-${index}`} className="row row-2">
+              {index > 0 ? (
+                <span className="breadcrumb-sep" aria-hidden="true">
+                  <ChevronRight />
+                </span>
+              ) : null}
+              {item.href && !isLast ? (
+                <Link href={item.href}>{item.label}</Link>
+              ) : (
+                <span aria-current={isLast ? "page" : undefined} title={item.label}>
+                  {item.label}
+                  {isLast && currentLabel ? <span className="sr-only">{currentLabel}</span> : null}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </nav>
   );
 }

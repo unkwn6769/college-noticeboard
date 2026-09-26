@@ -24,9 +24,16 @@ export const PUBLIC_NAV: PublicNavItem[] = [
  * `/` matches only itself; every other prefix matches its own route and any
  * route nested below it, so `/departments/cse-noticeboard` keeps the
  * Departments item current.
+ *
+ * A `fragmentOnly` item is a shortcut to a section of another page, not a page
+ * in its own right, so it is never reported active. Marking `/#notices` as the
+ * current page on `/` would put two `aria-current="page"` elements in the same
+ * `nav` and would claim the visitor is on a "Notices page" when they are on the
+ * home page.
  */
-export function isPublicNavActive(pathname: string, href: string): boolean {
-  const target = href.split("#")[0] || "/";
+export function isPublicNavActive(pathname: string, item: PublicNavItem): boolean {
+  if (item.fragmentOnly) return false;
+  const target = item.href.split("#")[0] || "/";
   if (target === "/") return pathname === "/";
   return pathname === target || pathname.startsWith(`${target}/`);
 }

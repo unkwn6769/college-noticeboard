@@ -474,7 +474,7 @@ export default function FilesPage() {
           />
         </div>
       ) : loading ? (
-        <div className="table-wrap" style={{ marginTop: "var(--space-5)" }}>
+        <div className="table-wrap" style={{ marginTop: "var(--space-5)" }} tabIndex={0} role="region" aria-label="Loading files">
           <div style={{ padding: "var(--space-4)" }}>
             <SkeletonRegion label="Loading files.">
               <SkeletonTable rows={8} columns={5} />
@@ -505,7 +505,7 @@ export default function FilesPage() {
         </div>
       ) : (
         <>
-          <div className="table-wrap show-desktop" style={{ marginTop: "var(--space-5)" }}>
+          <div className="table-wrap show-desktop" style={{ marginTop: "var(--space-5)" }} tabIndex={0} role="region" aria-label="Files table">
             <table className="data-table">
               <thead>
                 <tr>

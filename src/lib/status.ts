@@ -70,13 +70,45 @@ const SEVERITY: Record<string, StatusDescriptor> = {
   info: { label: "Info", tone: "info" },
 };
 
+/**
+ * Mirrors the `legacy_scanner_runs.status` CHECK constraint in
+ * `db/006_legacy_scanner.sql`. A status outside that set cannot occur, so
+ * mapping values that never happen would leave a finished run rendering as an
+ * unmapped neutral badge, and would stop the workflow indicator from ever
+ * reaching the result step.
+ */
 const SCANNER_RUN: Record<string, StatusDescriptor> = {
-  PENDING: { label: "Pending", tone: "info" },
-  RUNNING: { label: "Running", tone: "info" },
-  COMPLETED: { label: "Completed", tone: "success" },
+  RUNNING: { label: "Running", tone: "info", hint: "The scan is still in progress" },
+  SUCCEEDED: { label: "Succeeded", tone: "success" },
   FAILED: { label: "Failed", tone: "danger" },
-  CANCELLED: { label: "Cancelled", tone: "neutral" },
+  INTERRUPTED: {
+    label: "Interrupted",
+    tone: "warning",
+    hint: "The run stopped before finishing and its lease expired",
+  },
 };
+
+export type ScannerRunSummary = {
+  status: string | null | undefined;
+  failed_count?: number | null;
+};
+
+/**
+ * A run that finished while some items could not be processed is not a success.
+ * Reporting it with the plain success badge is how a partial import gets
+ * mistaken for a clean one, so the count is carried in the label and the tone
+ * drops to warning.
+ */
+export function scannerRunOutcome(run: ScannerRunSummary): StatusDescriptor {
+  const base = scannerRunStatus(run.status);
+  const failed = run.failed_count ?? 0;
+  if (run.status !== "SUCCEEDED" || failed <= 0) return base;
+  return {
+    label: `Succeeded with ${failed} failed item${failed === 1 ? "" : "s"}`,
+    tone: "warning",
+    hint: "The run finished, but some items could not be processed. They are listed under Recovery.",
+  };
+}
 
 const SCANNER_OUTCOME: Record<string, StatusDescriptor> = {
   NEW: { label: "New", tone: "info" },

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ChevronRight, FolderOpen } from "lucide-react";
+import { FolderOpen } from "lucide-react";
+import Breadcrumbs from "@/src/components/Breadcrumbs";
 import FileIcon from "@/src/components/FileIcon";
 import EmptyState from "@/src/components/EmptyState";
 import { fileTypeLabel, formatBytes, formatDate } from "@/src/lib/format";
@@ -19,7 +20,12 @@ type Crumb = { label: string; href: string };
 type Props = {
   title: string;
   description: string;
-  breadcrumbs: Crumb[];
+  /**
+   * Optional in-section location trail. Omit it when the page already shows a
+   * breadcrumb that ends at the current folder: two trails that both end in
+   * `aria-current="page"` would announce the current page twice.
+   */
+  breadcrumbs?: Crumb[];
   folders: BrowserFolder[];
   files: BrowserFile[];
   empty: {
@@ -63,32 +69,11 @@ export default function ArchiveBrowser({
         </div>
       </div>
 
-      <nav aria-label="Archive location" style={{ marginBottom: "var(--space-4)" }}>
-        <ol
-          className="breadcrumbs"
-          style={{ margin: 0, listStyle: "none", padding: 0 }}
-        >
-          {breadcrumbs.map((crumb, index) => {
-            const isLast = index === breadcrumbs.length - 1;
-            return (
-              <li key={crumb.href} className="row row-2" style={{ gap: 2 }}>
-                {index > 0 ? (
-                  <span className="breadcrumb-sep" aria-hidden="true">
-                    <ChevronRight />
-                  </span>
-                ) : null}
-                {isLast ? (
-                  <span aria-current="page" title={crumb.label}>
-                    {crumb.label}
-                  </span>
-                ) : (
-                  <Link href={crumb.href}>{crumb.label}</Link>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
+      {breadcrumbs && breadcrumbs.length > 0 ? (
+        <div style={{ marginBottom: "var(--space-4)" }}>
+          <Breadcrumbs items={breadcrumbs} label="Archive location" />
+        </div>
+      ) : null}
 
       {controls}
 

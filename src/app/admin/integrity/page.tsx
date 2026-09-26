@@ -294,7 +294,7 @@ export default function IntegrityPage() {
                 />
               ) : (
                 <>
-                  <div className="table-wrap show-desktop">
+                  <div className="table-wrap show-desktop" tabIndex={0} role="region" aria-label="Integrity issues table">
                     <table className="data-table">
                       <thead>
                         <tr>

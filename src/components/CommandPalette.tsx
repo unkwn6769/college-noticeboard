@@ -3,6 +3,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CornerDownLeft, Search, X } from "lucide-react";
+import { useFocusRestore } from "@/src/components/useFocusRestore";
 
 export type PaletteCommand = {
   id: string;
@@ -42,9 +43,13 @@ function score(command: PaletteCommand, query: string): number {
  *
  * Like every other modal surface in the product it is built on the shared
  * Radix Dialog primitive, so Tab is trapped inside the palette, the page
- * behind it is inert, the body scroll is locked and focus is returned to
- * whatever opened it. `onOpenAutoFocus` is overridden only to put the caret in
- * the input; everything else is the primitive's own behaviour.
+ * behind it is inert and the body scroll is locked.
+ * `onOpenAutoFocus` is overridden only to put the caret in the input.
+ *
+ * Focus restoration is handled by `useFocusRestore` rather than the primitive:
+ * the palette is opened by a global keyboard shortcut, not by a
+ * `Dialog.Trigger`, so Radix has no trigger to hand focus back to and dismissal
+ * would otherwise strand focus on `<body>`.
  */
 export default function CommandPalette({ open, onOpenChange, commands, placeholder }: Props) {
   const listId = useId();
@@ -53,6 +58,7 @@ export default function CommandPalette({ open, onOpenChange, commands, placehold
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  useFocusRestore(open);
 
   useEffect(() => {
     if (!open) return;

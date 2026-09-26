@@ -436,7 +436,12 @@ body[data-scroll-lock] {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
-  margin-bottom: var(--space-4);
+  /* The trail is an ordered list for semantics; the visual row is the flex
+     track, so the list markers and indent are removed here rather than with
+     inline styles at each call site. */
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
   color: var(--text-subtle);
   font-size: var(--text-xs);
 }
@@ -879,6 +884,11 @@ a.notice-card-title-link:hover {
 .resource-list {
   display: grid;
   gap: var(--space-1);
+  /* An `auto` track sizes to max-content, so a long file name plus a nowrap
+     size cell made every row wider than the viewport and the list clipped it.
+     `minmax(0, 1fr)` lets the row shrink to the column and the existing
+     ellipsis rules on the name/sub do their job. */
+  grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);

@@ -222,7 +222,7 @@ export default function RecycleBinPage() {
           onRetry={() => void load()}
         />
       ) : loading ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Loading recycle bin">
           <div style={{ padding: "var(--space-4)" }}>
             <SkeletonRegion label="Loading the recycle bin.">
               <SkeletonTable rows={5} columns={4} />

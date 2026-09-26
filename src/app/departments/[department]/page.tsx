@@ -96,8 +96,13 @@ export default async function DepartmentPage({
                 items={[
                   { label: "Home", href: "/" },
                   { label: "Departments", href: "/departments" },
-                  { label: department.name },
+                  { label: department.shortName, href: `/departments/${department.slug}` },
+                  ...breadcrumbs.map((crumb) => ({
+                    label: crumb.name,
+                    href: `/departments/${department.slug}${encodePath(crumb.path)}`,
+                  })),
                 ]}
+                currentLabel={archive.path}
               />
             }
             eyebrow={department.shortName}
@@ -201,14 +206,6 @@ export default async function DepartmentPage({
           <ArchiveBrowser
             title={archive.path ? archive.path.split("/").at(-1) ?? "Folder" : "Department archive"}
             description="Browse the migrated archive as a virtual folder hierarchy. Physical storage locations are never exposed."
-            breadcrumbs={[
-              { label: "All departments", href: "/departments" },
-              { label: department.shortName, href: `/departments/${department.slug}` },
-              ...breadcrumbs.map((crumb) => ({
-                label: crumb.name,
-                href: `/departments/${department.slug}${encodePath(crumb.path)}`,
-              })),
-            ]}
             folders={archive.folders.map((folder) => ({
               name: folder.name,
               href: `/departments/${department.slug}${encodePath(folder.path)}`,

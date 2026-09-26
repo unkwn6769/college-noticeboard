@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { classifyLegacyPath, compareCandidate, needsVerification } from "./legacy-scanner-core";
-import { discoverLegacyFiles, previewLegacyScan, startLegacyScan } from "./legacy-scanner";
+import { discoverLegacyFiles, previewLegacyScan, redactLegacySourceDetails, startLegacyScan } from "./legacy-scanner";
 import { HttpDirectoryAdapter } from "./legacy-source-adapters";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import path from "node:path";
@@ -54,5 +54,55 @@ describe("legacy scanner classification and comparison", () => {
     expect(queries).toHaveLength(2);
     expect(queries.every((sql)=>sql.trimStart().startsWith("SELECT"))).toBe(true);
     expect(queries.some((sql)=>/INSERT|UPDATE|DELETE|audit/i.test(sql))).toBe(false);
+  });
+});
+
+describe("legacy source detail redaction", () => {
+  it("removes the configured source root from a recorded message", () => {
+    // This is the exact shape a real SUCCEEDED run stored: the HTTP adapter put
+    // the absolute source URL into legacy_scanner_runs.error_message, and the
+    // scanner screen rendered it verbatim.
+    const stored =
+      "http://10.24.14.231/noticeboards/csit-noticeboard/ [500]: HTTP source directory failed: 500; " +
+      "http://10.24.14.231/noticeboards/it-noticeboard/2023-24/General/ [400]: HTTP source directory failed: 400";
+    const redacted = redactLegacySourceDetails(stored)!;
+    expect(redacted).not.toMatch(/10\.24\.14\.231/);
+    expect(redacted).not.toMatch(/https?:/);
+    // The diagnostic value is untouched: which location, and what happened.
+    expect(redacted).toContain("csit-noticeboard/ [500]");
+    expect(redacted).toContain("HTTP source directory failed: 500");
+    expect(redacted).toContain("it-noticeboard/2023-24/General/ [400]");
+  });
+
+  it("removes the mount point from filesystem-sourced messages", () => {
+    const redacted = redactLegacySourceDetails(
+      "/mnt/legacy-noticeboards/noticeboards/cse-noticeboard/2026/a.pdf: Legacy source must be a regular file",
+    )!;
+    expect(redacted).not.toContain("/mnt/legacy-noticeboards");
+    expect(redacted).toContain("cse-noticeboard/2026/a.pdf");
+  });
+
+  it("strips scheme and authority from any other absolute URL", () => {
+    const redacted = redactLegacySourceDetails(
+      "redirected to https://legacy.internal.example:8080/noticeboards/x/ [403]: failed",
+    )!;
+    expect(redacted).not.toMatch(/legacy\.internal\.example/);
+    expect(redacted).toContain("/noticeboards/x/ [403]: failed");
+  });
+
+  it("leaves messages with no source details exactly as they are", () => {
+    for (const message of [
+      "Scanner lease expired",
+      "HTTP source stream timed out after 120000ms",
+      "A scanner run is already active",
+    ]) {
+      expect(redactLegacySourceDetails(message)).toBe(message);
+    }
+  });
+
+  it("preserves the null and empty cases the status payload depends on", () => {
+    expect(redactLegacySourceDetails(null)).toBeNull();
+    expect(redactLegacySourceDetails(undefined)).toBeNull();
+    expect(redactLegacySourceDetails("")).toBe("");
   });
 });

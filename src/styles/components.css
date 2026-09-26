@@ -616,6 +616,9 @@ a:hover > .link-arrow svg {
   font-size: var(--text-xs);
   line-height: var(--leading-snug);
   color: var(--banner-fg, var(--text-muted));
+  /* Diagnostics can carry a long unbroken token (a legacy path, an identifier).
+     Without this the whole page gains a horizontal scrollbar at 320px. */
+  overflow-wrap: anywhere;
 }
 
 .status-banner-success { --banner-bg: var(--success-soft); --banner-fg: var(--success-soft-text); --banner-br: var(--success-border); }

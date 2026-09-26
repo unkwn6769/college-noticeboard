@@ -340,7 +340,7 @@ export default function StoragePage() {
             {formatCount(trendTotal)} file{trendTotal === 1 ? "" : "s"} uploaded by operators,{" "}
             {formatBytes(trendBytes)} in total. Days with no uploads are omitted.
           </p>
-          <div className="table-wrap" style={{ marginTop: "var(--space-4)" }}>
+          <div className="table-wrap" style={{ marginTop: "var(--space-4)" }} tabIndex={0} role="region" aria-label="Storage activity table">
             <table className="data-table">
               <thead>
                 <tr>

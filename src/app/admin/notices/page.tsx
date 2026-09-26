@@ -68,7 +68,7 @@ export default async function AdminNoticesPage() {
         />
       ) : (
         <>
-          <div className="table-wrap show-desktop">
+          <div className="table-wrap show-desktop" tabIndex={0} role="region" aria-label="Notices table">
             <table className="data-table">
               <thead>
                 <tr>

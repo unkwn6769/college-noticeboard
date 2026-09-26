@@ -146,14 +146,23 @@ export default async function NoticePage({
               ) : null}
             </dl>
 
-            <div className="reading-actions no-print row row-2" style={{ marginTop: "var(--space-4)" }}>
-              <Link className="btn btn-ghost btn-sm" href="/#notices">
-                <ArrowLeft aria-hidden="true" />
-                All notices
-              </Link>
-              <span className="spacer" />
-              <CopyButton label="Copy link" copiedLabel="Link copied" />
-              <PrintButton />
+            {/* `.reading-actions` carries the print rule; the toolbar pair is
+                the shared wrap-aware action row, so the row folds instead of
+                overflowing on a 320px viewport. */}
+            <div
+              className="toolbar reading-actions no-print"
+              style={{ marginTop: "var(--space-4)" }}
+            >
+              <div className="toolbar-group">
+                <Link className="btn btn-ghost btn-sm" href="/#notices">
+                  <ArrowLeft aria-hidden="true" />
+                  All notices
+                </Link>
+              </div>
+              <div className="toolbar-group">
+                <CopyButton label="Copy link" copiedLabel="Link copied" />
+                <PrintButton />
+              </div>
             </div>
 
             <div className="reading-body">{notice.body}</div>

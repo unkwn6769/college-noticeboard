@@ -22,7 +22,7 @@ import Breadcrumbs from "@/src/components/Breadcrumbs";
 import { SkeletonRegion, SkeletonText } from "@/src/components/Skeleton";
 import { useConfirm } from "@/src/components/ConfirmDialog";
 import { useToast } from "@/src/components/Toast";
-import { humanise, scannerOutcome, scannerRunStatus } from "@/src/lib/status";
+import { humanise, scannerOutcome, scannerRunOutcome } from "@/src/lib/status";
 import { formatBytes, formatDateTime, formatRelativeTime } from "@/src/lib/format";
 
 type Run = {
@@ -226,17 +226,38 @@ export default function ScannerPage() {
   const total = run ? run.total_count || run.discovered_count : 0;
   const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
 
+  // A run only reaches the result step when it actually finished. A run that
+  // ended badly, or whose lease expired, leaves the operator in Recovery.
   const stageIndex = run
-    ? run.status === "COMPLETED"
+    ? run.status === "SUCCEEDED"
       ? 4
-      : run.status === "FAILED"
-        ? 5
-        : 3
+      : run.status === "RUNNING"
+        ? 3
+        : 5
     : preview
       ? expired
         ? 1
         : 2
       : 0;
+
+  /**
+   * A successful run carries an `error_message` when some source locations
+   * could not be read. That is a partial failure, not a failed run, so it is
+   * reported as a warning; only a run that actually failed gets the danger
+   * treatment.
+   */
+  const runMessage = run?.error_message?.trim() ? run.error_message.trim() : null;
+  /** Import is unavailable until a live, unexpired preview exists. */
+  const importLocked = !preview || expired;
+  const runBanner = !run
+    ? null
+    : run.status === "FAILED"
+      ? { tone: "danger" as const, icon: TriangleAlert, title: "The run failed", text: runMessage ?? "No further detail was recorded." }
+      : run.status === "INTERRUPTED"
+        ? { tone: "warning" as const, icon: TriangleAlert, title: "The run was interrupted", text: runMessage ?? "The run stopped before finishing." }
+        : run.status === "SUCCEEDED" && runMessage
+          ? { tone: "warning" as const, icon: TriangleAlert, title: "The run finished with unreadable source locations", text: runMessage }
+          : null;
 
   return (
     <>
@@ -346,7 +367,7 @@ export default function ScannerPage() {
             </div>
 
             {preview.candidates.length > 0 ? (
-              <div className="table-wrap" style={{ marginTop: "var(--space-4)" }}>
+              <div className="table-wrap" style={{ marginTop: "var(--space-4)" }} tabIndex={0} role="region" aria-label="Scanner candidates table">
                 <table className="data-table">
                   <caption>
                     {preview.candidates.length} candidate
@@ -429,7 +450,18 @@ export default function ScannerPage() {
       </section>
 
       {/* Stage 2 — Import ------------------------------------------------- */}
-      <section className={`stage${!preview || expired ? " stage-locked" : ""}`} aria-labelledby="stage-import">
+      <section
+        className={`stage${importLocked ? " stage-locked" : ""}`}
+        aria-labelledby="stage-import"
+        {...(importLocked
+          ? // Dimming alone is not a state. `role="group"` + `aria-disabled`
+            // is the standard way to tell assistive technology that a group of
+            // controls is unavailable, and the reason is announced with it
+            // rather than being left in a paragraph next to a disabled button
+            // that never receives focus.
+            { role: "group" as const, "aria-disabled": true as const, "aria-describedby": "stage-import-state" }
+          : {})}
+      >
         <div className="stage-header">
           <div>
             <h2 className="stage-title" id="stage-import">
@@ -442,6 +474,12 @@ export default function ScannerPage() {
             </p>
           </div>
           <div className="stage-actions">
+            {importLocked ? (
+              <span className="badge badge-warning">
+                <TriangleAlert aria-hidden="true" />
+                Import locked
+              </span>
+            ) : null}
             <button
               type="button"
               className="btn btn-secondary"
@@ -454,7 +492,7 @@ export default function ScannerPage() {
             <button
               type="button"
               className="btn"
-              disabled={busy || !preview || expired}
+              disabled={busy || importLocked}
               onClick={() => void start("IMPORT")}
             >
               <Download aria-hidden="true" />
@@ -463,14 +501,16 @@ export default function ScannerPage() {
           </div>
         </div>
         {!preview ? (
-          <p className="meta">
+          <p className="meta" id="stage-import-state">
             Import is locked. Generate a preview first — an import is only ever the exact
             set of candidates you reviewed.
           </p>
         ) : expired ? (
-          <p className="meta">Import is locked because the approval token has expired.</p>
+          <p className="meta" id="stage-import-state">
+            Import is locked because the approval token has expired.
+          </p>
         ) : (
-          <p className="meta">
+          <p className="meta" id="stage-import-state">
             Importing <strong>{preview.counts.new}</strong> new and{" "}
             <strong>{preview.counts.changed}</strong> changed candidate
             {preview.counts.new + preview.counts.changed === 1 ? "" : "s"}.
@@ -488,7 +528,7 @@ export default function ScannerPage() {
             </h2>
           </div>
           {run ? (
-            <StatusBadge descriptor={scannerRunStatus(run.status)} dot />
+            <StatusBadge descriptor={scannerRunOutcome(run)} dot />
           ) : null}
         </div>
 
@@ -503,7 +543,7 @@ export default function ScannerPage() {
           <>
             <div className="progress-bar" aria-hidden="true">
               <div
-                className={`progress-bar-fill${run.status === "COMPLETED" ? " progress-bar-fill-success" : run.status === "FAILED" ? " progress-bar-fill-danger" : ""}`}
+                className={`progress-bar-fill${run.status === "SUCCEEDED" ? " progress-bar-fill-success" : run.status === "FAILED" ? " progress-bar-fill-danger" : ""}`}
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -532,12 +572,12 @@ export default function ScannerPage() {
               </p>
             ) : null}
 
-            {run.error_message ? (
-              <div className="status-banner status-banner-danger" style={{ marginTop: "var(--space-4)" }}>
-                <TriangleAlert aria-hidden="true" />
+            {runBanner ? (
+              <div className={`status-banner status-banner-${runBanner.tone}`} style={{ marginTop: "var(--space-4)" }}>
+                <runBanner.icon aria-hidden="true" />
                 <div>
-                  <p className="status-banner-title">The run reported an error</p>
-                  <p className="status-banner-text">{run.error_message}</p>
+                  <p className="status-banner-title">{runBanner.title}</p>
+                  <p className="status-banner-text">{runBanner.text}</p>
                 </div>
               </div>
             ) : null}

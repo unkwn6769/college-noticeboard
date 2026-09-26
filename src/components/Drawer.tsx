@@ -3,6 +3,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useFocusRestore } from "@/src/components/useFocusRestore";
 
 type Props = {
   open: boolean;
@@ -23,11 +24,13 @@ type Props = {
  * Both the public header menu and the admin workspace menu render through
  * this component, so the product has exactly one modal implementation. The
  * behaviour that is genuinely hard to do correctly by hand — trapping Tab
- * inside the panel, moving focus in on open, restoring focus to the trigger on
- * close, Escape to dismiss, background inertness and scroll locking — is
- * delegated to the same Radix Dialog primitive that `Dialog.tsx` uses. What is
- * left is this project's own design system, so there is exactly one drawer
- * look and one drawer interaction model.
+ * inside the panel, moving focus in on open, Escape to dismiss, background
+ * inertness and scroll locking — is delegated to the same Radix Dialog
+ * primitive that `Dialog.tsx` uses. Focus restoration is handled here instead
+ * of by the primitive, because the toggle that opens this drawer is a plain
+ * button rather than a `Dialog.Trigger`, and Radix can only return focus to a
+ * trigger it owns. What is left is this project's own design system, so there
+ * is exactly one drawer look and one drawer interaction model.
  *
  * Motion is deliberately one-directional: the panel slides in and is removed
  * on dismiss. A one-way transition is the restrained choice here, and it also
@@ -42,6 +45,8 @@ export default function Drawer({
   children,
   id,
 }: Props) {
+  useFocusRestore(open);
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>

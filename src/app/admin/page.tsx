@@ -232,7 +232,7 @@ export default async function AdminPage() {
             description="Administrative actions are written to the append-only audit log. Nothing has been recorded so far."
           />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Recent audit events table">
             <table className="data-table">
               <thead>
                 <tr>

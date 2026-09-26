@@ -56,7 +56,7 @@ export default function PublicNav() {
 
           <nav className="site-nav site-nav-desktop" aria-label="Primary">
             {PUBLIC_NAV.map((item) => {
-              const active = isPublicNavActive(pathname, item.href);
+              const active = isPublicNavActive(pathname, item);
               return (
                 <Link
                   key={item.href}
@@ -105,7 +105,7 @@ export default function PublicNav() {
             <p className="drawer-section-label">Browse</p>
             <div className="drawer-nav">
               {PUBLIC_NAV.map((item) => {
-                const active = isPublicNavActive(pathname, item.href);
+                const active = isPublicNavActive(pathname, item);
                 const Icon = NAV_ICONS[item.icon];
                 return (
                   <Link

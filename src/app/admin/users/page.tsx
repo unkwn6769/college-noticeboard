@@ -404,7 +404,7 @@ export default function UsersPage() {
           />
         </div>
       ) : loading ? (
-        <div className="table-wrap" style={{ marginTop: "var(--space-5)" }}>
+        <div className="table-wrap" style={{ marginTop: "var(--space-5)" }} tabIndex={0} role="region" aria-label="Loading accounts">
           <div style={{ padding: "var(--space-4)" }}>
             <SkeletonRegion label="Loading accounts.">
               <SkeletonTable rows={5} columns={4} />
@@ -443,7 +443,7 @@ export default function UsersPage() {
         </div>
       ) : (
         <>
-          <div className="table-wrap show-desktop" style={{ marginTop: "var(--space-5)" }}>
+          <div className="table-wrap show-desktop" style={{ marginTop: "var(--space-5)" }} tabIndex={0} role="region" aria-label="User accounts table">
             <table className="data-table">
               <thead>
                 <tr>

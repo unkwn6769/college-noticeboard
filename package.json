@@ -16,7 +16,8 @@
     "db:init": "node scripts/db-init.mjs",
     "admin:create": "node scripts/create-admin.mjs",
     "maintenance": "node scripts/maintenance.mjs",
-    "backup:db": "node scripts/backup-db.mjs"
+    "backup:db": "node scripts/backup-db.mjs",
+    "verify:corpus": "node scripts/verify-corpus.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

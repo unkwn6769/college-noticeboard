@@ -1411,6 +1411,9 @@ a:hover > .link-arrow svg {
 }
 
 .metric-value {
+  /* `dd` carries a 40px UA indent. `.metric` is a flex column, so without this
+     reset the figure is pushed sideways. Matches every other `dd` in the sheet. */
+  margin: 0;
   font-size: var(--text-2xl);
   font-weight: 700;
   line-height: 1.1;

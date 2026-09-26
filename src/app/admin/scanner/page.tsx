@@ -671,8 +671,12 @@ function Metric({
           : "";
   return (
     <div className={`metric${accent}`}>
-      <span className="metric-label">{label}</span>
-      <span className="metric-value">{value.toLocaleString("en-IN")}</span>
+      {/* `metric-grid` is a description list here, so the pair must be dt/dd.
+          A `span` inside a `dl > div` is not permitted, and it left the
+          label/value relationship unexposed to assistive technology. The rest
+          of the product already pairs dt/dd inside every other `dl`. */}
+      <dt className="metric-label">{label}</dt>
+      <dd className="metric-value">{value.toLocaleString("en-IN")}</dd>
     </div>
   );
 }

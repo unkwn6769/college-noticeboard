@@ -1,32 +1,45 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  Download,
+  Hash,
+  Megaphone,
+  Pin,
+  User,
+} from "lucide-react";
 
 import PublicNav from "@/src/components/PublicNav";
 import PublicFooter from "@/src/components/PublicFooter";
-import { getNotice } from "@/src/lib/notices";
+import Breadcrumbs from "@/src/components/Breadcrumbs";
+import CopyButton from "@/src/components/CopyButton";
+import PrintButton from "@/src/components/PrintButton";
+import FileIcon from "@/src/components/FileIcon";
+import EmptyState from "@/src/components/EmptyState";
+import SectionHeader from "@/src/components/SectionHeader";
+import { getNotice, listPublishedNotices } from "@/src/lib/notices";
 import { listNoticeAttachments } from "@/src/lib/notice-attachments";
+import { getDepartment } from "@/src/lib/department-registry";
 import { assertUuid } from "@/src/lib/security";
-import { notFound } from "next/navigation";
+import { departmentLabel, fileTypeLabel, formatBytes, formatDateTime } from "@/src/lib/format";
 
 export const dynamic = "force-dynamic";
 
-function labelDepartment(value: string | null | undefined) {
-  return value?.replace("-noticeboard", "") ?? null;
-}
-
-function formatBytes(value: string) {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes < 0) return `${value} B`;
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let amount = bytes;
-  let unitIndex = 0;
-
-  while (amount >= 1024 && unitIndex < units.length - 1) {
-    amount /= 1024;
-    unitIndex += 1;
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  try {
+    assertUuid(id);
+  } catch {
+    return { title: "Notice not found" };
   }
-
-  return `${amount >= 10 || unitIndex === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unitIndex]}`;
+  const notice = await getNotice(id);
+  if (!notice) return { title: "Notice not found" };
+  return {
+    title: notice.title,
+    description: String(notice.body).slice(0, 155),
+  };
 }
 
 export default async function NoticePage({
@@ -40,66 +53,197 @@ export default async function NoticePage({
   } catch {
     notFound();
   }
+
   const notice = await getNotice(id);
   if (!notice) notFound();
 
-  const attachments = await listNoticeAttachments(id, { publicOnly: true });
-  const department = labelDepartment(notice.department);
+  const [attachments, related] = await Promise.all([
+    listNoticeAttachments(id, { publicOnly: true }),
+    notice.department
+      ? listPublishedNotices("", 5, { department: notice.department })
+      : Promise.resolve([]),
+  ]);
+
+  const department = notice.department ? getDepartment(notice.department) : null;
+  const departmentName = department?.name ?? departmentLabel(notice.department);
+  const relatedNotices = related
+    .filter((item) => item.id !== notice.id)
+    .slice(0, 4);
 
   return (
     <>
       <PublicNav />
-      <main className="container page public-page">
-        <Link className="public-back-link" href="/#notices">
-          ← Latest notices
-        </Link>
+      <main className="page" id="main-content">
+        <div className="container">
+          <Breadcrumbs
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Notices", href: "/#notices" },
+              ...(notice.department
+                ? [
+                    {
+                      label: department?.shortName ?? departmentLabel(notice.department) ?? "Department",
+                      href: `/departments/${notice.department}`,
+                    },
+                  ]
+                : []),
+              { label: notice.title },
+            ]}
+          />
 
-        <article className="card public-notice-detail">
-          <div className="public-notice-detail-meta">
-            {notice.is_pinned && <span className="public-tag">Important</span>}
-            {department && <span className="public-tag">{department}</span>}
-            {notice.category && <span className="public-tag">{notice.category}</span>}
-            <span className="public-notice-date">
-              {notice.author} · {new Date(notice.published_at).toLocaleString()}
-            </span>
-          </div>
+          <article className="reading">
+            <div className="reading-meta">
+              {notice.is_pinned ? (
+                <span className="badge badge-warning">
+                  <Pin aria-hidden="true" />
+                  Important
+                </span>
+              ) : null}
+              {notice.department ? (
+                <Link className="badge badge-info" href={`/departments/${notice.department}`}>
+                  {departmentName}
+                </Link>
+              ) : (
+                <span className="badge badge-info">College-wide</span>
+              )}
+              {notice.category ? <span className="badge">{notice.category}</span> : null}
+              <span className="badge">
+                <span className="badge-dot" aria-hidden="true" />
+                Published
+              </span>
+            </div>
 
-          <h1>{notice.title}</h1>
-          <div className="notice-body">{notice.body}</div>
+            <h1 className="reading-title">{notice.title}</h1>
 
-          {attachments.length > 0 && (
-            <section className="public-notice-attachments" aria-labelledby="notice-attachments-title">
-              <div className="public-notice-attachments-header">
-                <div>
-                  <h2 id="notice-attachments-title">Attachments</h2>
-                  <p className="muted">Documents attached to this published notice.</p>
-                </div>
+            <dl className="reading-byline">
+              <div className="byline-item">
+                <User aria-hidden="true" />
+                <dt className="sr-only">Published by</dt>
+                <dd>{notice.author}</dd>
               </div>
-
-              <div className="public-notice-attachment-list">
-                {attachments.map((attachment) => (
-                  <div className="public-notice-attachment" key={attachment.id}>
-                    <div>
-                      <div className="public-notice-attachment-name">
-                        {attachment.original_name}
-                      </div>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {attachment.mime_type} · {formatBytes(attachment.size_bytes)}
-                      </div>
-                    </div>
-
-                    <a
-                      className="btn secondary"
-                      href={`/api/notices/${id}/attachments/${attachment.id}`}
+              <div className="byline-item">
+                <CalendarDays aria-hidden="true" />
+                <dt className="sr-only">Published on</dt>
+                <dd>
+                  <time dateTime={notice.published_at ?? undefined}>
+                    {formatDateTime(notice.published_at, { fallback: "Not yet published" })}
+                  </time>
+                </dd>
+              </div>
+              {notice.department ? (
+                <div className="byline-item">
+                  <Megaphone aria-hidden="true" />
+                  <dt className="sr-only">Department</dt>
+                  <dd>
+                    <Link
+                      className="link-arrow"
+                      href={`/departments/${notice.department}`}
                     >
-                      Download
-                    </a>
-                  </div>
-                ))}
-              </div>
+                      {departmentName}
+                    </Link>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+
+            <div className="reading-actions no-print row row-2" style={{ marginTop: "var(--space-4)" }}>
+              <Link className="btn btn-ghost btn-sm" href="/#notices">
+                <ArrowLeft aria-hidden="true" />
+                All notices
+              </Link>
+              <span className="spacer" />
+              <CopyButton label="Copy link" copiedLabel="Link copied" />
+              <PrintButton />
+            </div>
+
+            <div className="reading-body">{notice.body}</div>
+
+            <section
+              className="section"
+              aria-labelledby="notice-attachments-title"
+              style={{ marginTop: "var(--space-8)" }}
+            >
+              <SectionHeader
+                eyebrow="Documents"
+                title={`Attachments (${attachments.length})`}
+                id="notice-attachments-title"
+                description="Documents published with this notice."
+              />
+              {attachments.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={Hash}
+                  title="No attachments"
+                  description="This notice was published without any supporting documents."
+                />
+              ) : (
+                <ul className="attachment-list" style={{ listStyle: "none", padding: 0 }}>
+                  {attachments.map((attachment) => (
+                    <li key={attachment.id}>
+                      <div className="attachment">
+                        <span className="resource-icon" aria-hidden="true">
+                          <FileIcon
+                            name={attachment.original_name}
+                            mimeType={attachment.mime_type}
+                          />
+                        </span>
+                        <span className="attachment-main">
+                          <span className="attachment-name" title={attachment.original_name}>
+                            {attachment.original_name}
+                          </span>
+                          <span className="attachment-meta">
+                            {fileTypeLabel(attachment.original_name, attachment.mime_type)} ·{" "}
+                            {formatBytes(attachment.size_bytes)}
+                          </span>
+                        </span>
+                        <a
+                          className="btn btn-secondary btn-sm"
+                          href={`/api/notices/${id}/attachments/${attachment.id}`}
+                        >
+                          <Download aria-hidden="true" />
+                          Download
+                        </a>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
-          )}
-        </article>
+
+            {relatedNotices.length > 0 ? (
+              <section className="section" aria-labelledby="related-notices-title">
+                <SectionHeader
+                  eyebrow="Related"
+                  title="More from this department"
+                  id="related-notices-title"
+                  action={
+                    notice.department ? (
+                      <Link className="link-arrow" href={`/departments/${notice.department}`}>
+                        Open department
+                        <ArrowRight aria-hidden="true" />
+                      </Link>
+                    ) : null
+                  }
+                />
+                <ul className="related-list" style={{ listStyle: "none", padding: 0 }}>
+                  {relatedNotices.map((item) => (
+                    <li key={item.id}>
+                      <Link className="related-item" href={`/notices/${item.id}`}>
+                        <span>
+                          <span className="related-title">{item.title}</span>
+                          <span className="related-date" style={{ display: "block" }}>
+                            {formatDateTime(item.published_at, { fallback: "Unpublished" })}
+                          </span>
+                        </span>
+                        <ArrowRight aria-hidden="true" width={16} height={16} />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </article>
+        </div>
       </main>
       <PublicFooter />
     </>

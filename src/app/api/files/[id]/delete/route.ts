@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { markDeleted } from "@/src/lib/files";
 import { assertSameOrigin } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime = "nodejs";
 
@@ -24,6 +24,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof Error && error.message === "Invalid ID") return jsonError("Invalid file ID", 400);
     if (error instanceof Error && error.message === "Origin check failed") return jsonError("Origin check failed", 400);
-    return jsonError(error instanceof Error ? error.message : "Delete failed", 400);
+    return jsonError(publicErrorMessage(error, "The file could not be quarantined."), 400);
   }
 }

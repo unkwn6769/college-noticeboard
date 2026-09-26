@@ -1,0 +1,220 @@
+/*
+ * College Noticeboard — design tokens
+ * ------------------------------------------------------------------
+ * Single source of truth for colour, type, spacing, shape, elevation,
+ * motion and z-index. Every other stylesheet consumes these variables and
+ * never hard-codes a colour value, so the dark theme and any future density
+ * change are one edit rather than fifty.
+ */
+
+:root {
+  /* ---- Palette: light ------------------------------------------------ */
+  color-scheme: light;
+
+  --bg: #f4f6f9;
+  --bg-subtle: #eceff4;
+  --surface: #ffffff;
+  --surface-muted: #f5f7fa;
+  --surface-sunken: #eef1f6;
+  --surface-inverse: #101725;
+  --surface-inverse-text: #f4f7fc;
+
+  --border: #e1e6ed;
+  --border-strong: #c8d0dc;
+  --border-inverse: #2a3342;
+
+  --text: #0d1117;
+  --text-muted: #4b5563;
+  --text-subtle: #5d6776;
+  --text-on-primary: #ffffff;
+  --text-on-inverse: #aeb9c9;
+
+  --primary: #1a4fd0;
+  --primary-hover: #1541ad;
+  --primary-active: #113688;
+  --primary-soft: #e8eefc;
+  --primary-soft-text: #16307a;
+  --primary-border: #c3d2f6;
+
+  --danger: #b42318;
+  --danger-hover: #97180f;
+  --danger-soft: #fde9e7;
+  --danger-soft-text: #8c1d13;
+  --danger-border: #f6c8c3;
+
+  --warning: #9a5b06;
+  --warning-soft: #fdf1d8;
+  --warning-soft-text: #7a4405;
+  --warning-border: #f0d9a4;
+
+  --success: #0a7040;
+  --success-soft: #dcf5e7;
+  --success-soft-text: #085733;
+  --success-border: #a8e0c3;
+
+  --info: #1a4fd0;
+  --info-soft: #e8eefc;
+  --info-soft-text: #16307a;
+  --info-border: #c3d2f6;
+
+  --neutral-soft: #eef1f5;
+  --neutral-soft-text: #414b5a;
+  --neutral-border: #dde3ea;
+
+  --focus-ring: #1a4fd0;
+  --focus-ring-offset: #ffffff;
+
+  --overlay: rgb(11 16 26 / 55%);
+
+  --skeleton-base: #e7ebf1;
+  --skeleton-sheen: #f4f7fa;
+
+  /* ---- Typography ---------------------------------------------------- */
+  --font-sans: "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+
+  --text-3xs: 0.6875rem; /* 11px — dense table metadata            */
+  --text-2xs: 0.75rem; /* 12px — captions, labels, meta          */
+  --text-xs: 0.8125rem; /* 13px — secondary UI text              */
+  --text-sm: 0.875rem; /* 14px — default body / table            */
+  --text-base: 1rem; /* 16px — long-form body                  */
+  --text-lg: 1.0625rem; /* 17px — lead paragraphs                */
+  --text-xl: 1.25rem; /* 20px — card titles                     */
+  --text-2xl: 1.5rem; /* 24px — section titles                  */
+  --text-3xl: clamp(1.5rem, 1.15rem + 1.6vw, 2rem);
+  --text-4xl: clamp(1.875rem, 1.3rem + 2.6vw, 2.75rem);
+
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.72;
+
+  --tracking-tight: -0.02em;
+  --tracking-display: -0.035em;
+  --tracking-caps: 0.07em;
+
+  /* ---- Spacing -------------------------------------------------------- */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 2.5rem;
+  --space-9: 3rem;
+  --space-10: 4rem;
+  --space-11: 5rem;
+
+  --gutter: clamp(1rem, 0.6rem + 2vw, 2rem);
+  --page-y: clamp(2rem, 1.2rem + 3.2vw, 3.5rem);
+  --page-y-end: clamp(3rem, 2rem + 4vw, 5rem);
+
+  /* ---- Shape ---------------------------------------------------------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
+  --radius-full: 999px;
+
+  /* ---- Elevation ------------------------------------------------------ */
+  --shadow-xs: 0 1px 2px rgb(13 17 23 / 5%);
+  --shadow-sm: 0 1px 3px rgb(13 17 23 / 6%), 0 1px 2px rgb(13 17 23 / 4%);
+  --shadow-md: 0 6px 16px -6px rgb(13 17 23 / 12%), 0 2px 6px -2px rgb(13 17 23 / 6%);
+  --shadow-lg: 0 18px 40px -18px rgb(13 17 23 / 22%), 0 6px 14px -8px rgb(13 17 23 / 10%);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 60%);
+
+  /* ---- Motion --------------------------------------------------------- */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  /* ---- Layout --------------------------------------------------------- */
+  --content-width: 1140px;
+  --reading-width: 68ch;
+  --sidebar-width: 254px;
+  --header-height: 66px;
+  --z-header: 40;
+  --z-drawer: 60;
+  --z-overlay: 70;
+  --z-dialog: 80;
+  --z-toast: 90;
+  --z-palette: 95;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #090c12;
+  --bg-subtle: #0e1219;
+  --surface: #111620;
+  --surface-muted: #161c28;
+  --surface-sunken: #0b0f16;
+  --surface-inverse: #e9edf4;
+  --surface-inverse-text: #101725;
+
+  --border: #232b39;
+  --border-strong: #38424f;
+  --border-inverse: #2a3342;
+
+  --text: #e8ecf3;
+  --text-muted: #a7b1c1;
+  --text-subtle: #8d97a8;
+  --text-on-primary: #06101f;
+  --text-on-inverse: #4b5563;
+
+  --primary: #8fb0ff;
+  --primary-hover: #aac5ff;
+  --primary-active: #c3d6ff;
+  --primary-soft: #17233c;
+  --primary-soft-text: #bcd0ff;
+  --primary-border: #2c3f66;
+
+  --danger: #ff9a90;
+  --danger-hover: #ffb6ae;
+  --danger-soft: #2d1614;
+  --danger-soft-text: #ffb6ae;
+  --danger-border: #5a2b26;
+
+  --warning: #f0b768;
+  --warning-soft: #2c2211;
+  --warning-soft-text: #f3c68a;
+  --warning-border: #55421f;
+
+  --success: #5fd39b;
+  --success-soft: #0f2a1e;
+  --success-soft-text: #86e0b3;
+  --success-border: #1f4a34;
+
+  --info: #8fb0ff;
+  --info-soft: #17233c;
+  --info-soft-text: #bcd0ff;
+  --info-border: #2c3f66;
+
+  --neutral-soft: #1a2130;
+  --neutral-soft-text: #b3bdcb;
+  --neutral-border: #2b3444;
+
+  --focus-ring: #8fb0ff;
+  --focus-ring-offset: #0b0f16;
+
+  --overlay: rgb(2 4 8 / 68%);
+
+  --skeleton-base: #1b2230;
+  --skeleton-sheen: #232c3c;
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 45%);
+  --shadow-md: 0 8px 20px -8px rgb(0 0 0 / 60%);
+  --shadow-lg: 0 20px 44px -20px rgb(0 0 0 / 70%);
+  --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 4%);
+}

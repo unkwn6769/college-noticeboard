@@ -1,10 +1,16 @@
-import { notFound } from "next/navigation";
-import { getCurrentUser } from "@/src/lib/auth/session";
+import type { Metadata } from "next";
 
-// User administration is owner-only. The admin layout allows ADMIN, so this
-// segment needs its own server-side gate; a hidden nav link is not authorization.
-export default async function UsersLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "OWNER") notFound();
-  return <>{children}</>;
+/**
+ * These routes are client components, and `metadata` must be resolved on the
+ * server. A thin server layout owns the document title, description and
+ * indexing directive for the segment.
+ */
+export const metadata: Metadata = {
+  title: "Users",
+  description: "Owner-only account administration for the noticeboard.",
+  robots: { index: false, follow: false },
+};
+
+export default function SegmentLayout({ children }: { children: React.ReactNode }) {
+  return children;
 }

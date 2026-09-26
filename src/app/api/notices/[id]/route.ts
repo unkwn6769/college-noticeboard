@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getNotice, updateNotice, softDeleteNotice } from "@/src/lib/notices";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin, assertUuid } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime = "nodejs";
 
@@ -38,7 +38,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Update failed");
+    return jsonError(publicErrorMessage(error, "Notice could not be updated. Please try again."), 400);
   }
 }
 
@@ -55,6 +55,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     if (error instanceof Error && error.message === "NOTICE_NOT_FOUND") {
       return jsonError("Notice not found", 404);
     }
-    return jsonError(error instanceof Error ? error.message : "Delete failed");
+    return jsonError(publicErrorMessage(error, "Notice could not be deleted. Please try again."), 400);
   }
 }

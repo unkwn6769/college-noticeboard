@@ -53,10 +53,18 @@ export default async function ArchiveBrowserPage({ params, searchParams }: Props
   const query = await searchParams;
   const page = Number.parseInt(query.page ?? "1", 10);
 
-  const [departmentStats, archive] = await Promise.all([
-    listDepartmentStats(),
-    listArchiveDirectory({ department: departmentSlug, path: archivePath, page }),
-  ]);
+  const departmentStats = await listDepartmentStats();
+
+  let archive;
+  try {
+    archive = await listArchiveDirectory({
+      department: departmentSlug,
+      path: archivePath,
+      page,
+    });
+  } catch {
+    notFound();
+  }
 
   const stats = departmentStats.find((item) => item.slug === departmentSlug);
   if (!stats) notFound();

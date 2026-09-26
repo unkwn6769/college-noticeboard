@@ -1,6 +1,7 @@
 import { getDbPool } from "@/src/lib/db/pool";
 import { assertUuid } from "@/src/lib/security";
 import { normalizeArchivePath } from "./archive-path";
+import { escapeLikePattern } from "./sql-escape";
 
 export type ArchiveFolder = {
   name: string;
@@ -43,7 +44,7 @@ function normalizePageSize(value: number | undefined): number {
 }
 
 function escapeLike(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+  return escapeLikePattern(value);
 }
 
 const meaningfulPathSql = `
@@ -171,6 +172,9 @@ export async function listArchiveDirectory(input: {
   };
 }
 
+// Rows superseded by a later scanner import are hidden from every public
+// listing, otherwise a "recently added" link can point at a file page that
+// getArchiveFile() deliberately refuses to render.
 export async function listRecentArchiveFiles(limit = 8): Promise<ArchiveFile[]> {
   const boundedLimit = Number.isSafeInteger(limit)
     ? Math.min(12, Math.max(1, limit))
@@ -190,6 +194,13 @@ export async function listRecentArchiveFiles(limit = 8): Promise<ArchiveFile[]> 
      FROM files f
      WHERE f.state = 'ACTIVE'
        AND f.origin_type = 'LEGACY_IMPORT'
+       AND NOT EXISTS (
+         SELECT 1 FROM legacy_scanner_items s
+         WHERE s.legacy_relative_path = f.legacy_relative_path
+           AND s.status = 'IMPORTED'
+           AND s.file_id IS NOT NULL
+           AND s.file_id <> f.id
+       )
      ORDER BY f.created_at DESC, f.id DESC
      LIMIT $1`,
     [boundedLimit],

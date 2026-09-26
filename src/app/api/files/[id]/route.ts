@@ -4,7 +4,7 @@ import { getDbPool } from "@/src/lib/db/pool";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { getStorageEngine } from "@/src/lib/storage/engine";
 import { assertUuid } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 import { getDownloadPermission } from "@/src/lib/file-access";
 
 export const runtime = "nodejs";
@@ -59,9 +59,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    return jsonError(
-      error instanceof Error ? error.message : "Download failed",
-      400,
-    );
+    return jsonError(publicErrorMessage(error, "The file could not be downloaded."), 400);
   }
 }

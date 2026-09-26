@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getDbPool, withTransaction } from "@/src/lib/db/pool";
 import { audit } from "@/src/lib/audit";
 import { assertUuid } from "@/src/lib/security";
+import { escapeLikePattern, LIKE_ESCAPE_CLAUSE } from "./sql-escape";
 import { normalizeNoticeMetadata } from "./notice-metadata";
 
 export async function listPublishedNotices(
@@ -14,6 +15,9 @@ export async function listPublishedNotices(
   const boundedLimit = Number.isSafeInteger(limit)
     ? Math.min(50, Math.max(1, limit))
     : 50;
+  // A search term is user input, so LIKE metacharacters are escaped instead of
+  // being honoured as wildcards.
+  const pattern = `%${escapeLikePattern(q)}%`;
 
   const result = await getDbPool().query(
     `SELECT n.id, n.title, n.body, n.department, n.category, n.is_pinned,
@@ -24,15 +28,15 @@ export async function listPublishedNotices(
         AND n.deleted_at IS NULL
         AND (
           $1 = ''
-          OR n.title ILIKE '%' || $1 || '%'
-          OR n.body ILIKE '%' || $1 || '%'
-          OR n.department ILIKE '%' || $1 || '%'
-          OR n.category ILIKE '%' || $1 || '%'
+          OR n.title ILIKE $4 ${LIKE_ESCAPE_CLAUSE}
+          OR n.body ILIKE $4 ${LIKE_ESCAPE_CLAUSE}
+          OR n.department ILIKE $4 ${LIKE_ESCAPE_CLAUSE}
+          OR n.category ILIKE $4 ${LIKE_ESCAPE_CLAUSE}
         )
         AND ($3::text IS NULL OR n.department = $3)
       ORDER BY n.is_pinned DESC, n.published_at DESC, n.id DESC
       LIMIT $2`,
-    [q, boundedLimit, department],
+    [q, boundedLimit, department, pattern],
   );
 
   return result.rows;
@@ -53,8 +57,28 @@ export async function getNotice(id: string, includeDrafts = false) {
   return result.rows[0] ?? null;
 }
 
-export async function listAdminNotices() {
-  const result = await getDbPool().query(
+/**
+ * Exact number of publicly visible notices.
+ *
+ * The homepage shows a capped list, so the headline figure cannot be derived
+ * from it; this keeps the stat honest instead of rendering "6+".
+ */
+export async function countPublishedNotices(
+  options: { department?: string } = {},
+): Promise<number> {
+  const department = options.department?.trim() || null;
+  const result = await getDbPool().query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM notices n
+      WHERE n.status = 'PUBLISHED'
+        AND n.deleted_at IS NULL
+        AND ($1::text IS NULL OR n.department = $1)`,
+    [department],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+export async function listAdminNotices() {  const result = await getDbPool().query(
     `SELECT n.id, n.title, n.body, n.department, n.category, n.is_pinned,
             n.status, n.published_at, n.created_at, n.updated_at,
             u.display_name AS author

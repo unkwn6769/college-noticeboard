@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getDbPool, withTransaction } from "@/src/lib/db/pool";
 import { audit } from "@/src/lib/audit";
 import { assertUuid, sanitizeFilename } from "@/src/lib/security";
+import { escapeLikePattern, LIKE_ESCAPE_CLAUSE } from "./sql-escape";
 
 export type FileRecord = {
   id: string;
@@ -79,6 +80,11 @@ export async function listFiles(filters: FileListFilters = {}): Promise<Paginate
     offset,
   ];
 
+  // The search term reaches ILIKE, so wildcards typed by the user are escaped.
+  const searchPattern = `%${escapeLikePattern(search)}%`;
+  const rowParams = [...params, searchPattern];
+  const countParams = [...params.slice(0, 4), searchPattern];
+
   const meaningfulLegacyPathSql = `
     CASE
       WHEN f.origin_type = 'LEGACY_IMPORT'
@@ -90,9 +96,12 @@ export async function listFiles(filters: FileListFilters = {}): Promise<Paginate
     END
   `;
 
-  const where = `
+  // The search pattern is a different positional parameter in each statement
+  // (the row query also binds LIMIT/OFFSET), and every bound parameter must be
+  // referenced by the statement it is sent with.
+  const where = (searchParam: string) => `
     WHERE
-      ($1 = '' OR f.original_name ILIKE '%' || $1 || '%' OR (${meaningfulLegacyPathSql}) ILIKE '%' || $1 || '%')
+      ($1 = '' OR f.original_name ILIKE ${searchParam} ${LIKE_ESCAPE_CLAUSE} OR (${meaningfulLegacyPathSql}) ILIKE ${searchParam} ${LIKE_ESCAPE_CLAUSE})
       AND ($2::text IS NULL OR f.legacy_department = $2)
       AND ($3::text IS NULL OR f.origin_type = $3)
       AND ($4::file_state IS NULL OR f.state = $4)
@@ -125,16 +134,16 @@ export async function listFiles(filters: FileListFilters = {}): Promise<Paginate
          COALESCE(v.version_number, 1) AS version_number
        FROM files f
        LEFT JOIN file_versions v ON v.id = f.current_version_id
-       ${where}
+       ${where("$7")}
        ORDER BY f.created_at DESC, f.id DESC
        LIMIT $5 OFFSET $6`,
-      params,
+      rowParams,
     ),
     pool.query(
       `SELECT COUNT(*)::bigint AS total
        FROM files f
-       ${where}`,
-      params.slice(0, 4),
+       ${where("$5")}`,
+      countParams,
     ),
   ]);
 

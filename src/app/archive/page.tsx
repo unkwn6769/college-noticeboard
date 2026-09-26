@@ -1,11 +1,22 @@
 import Link from "next/link";
+import { ArrowRight, Building2, FileStack, Search } from "lucide-react";
 
-import PublicFooter from "@/src/components/PublicFooter";
 import PublicNav from "@/src/components/PublicNav";
+import PublicFooter from "@/src/components/PublicFooter";
+import DepartmentCard from "@/src/components/DepartmentCard";
+import PageHeader from "@/src/components/PageHeader";
 import SectionHeader from "@/src/components/SectionHeader";
+import EmptyState from "@/src/components/EmptyState";
 import { listDepartmentStats } from "@/src/lib/departments";
+import { formatCount } from "@/src/lib/format";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "College archive",
+  description:
+    "Browse the migrated college archive by department, folder and resource. Logical archive paths only.",
+};
 
 export default async function ArchivePage() {
   const departments = await listDepartmentStats();
@@ -13,73 +24,104 @@ export default async function ArchivePage() {
     (sum, department) => sum + department.resourceCount,
     0,
   );
+  const populated = departments.filter((department) => department.resourceCount > 0);
 
   return (
     <>
       <PublicNav />
-      <main className="container page public-page">
-        <section className="public-page-heading">
-          <p className="public-eyebrow">Archive</p>
-          <h1>College archive</h1>
-          <p className="lead public-archive-root-note">
-            Browse the migrated college archive by department, folder and resource.
-            Logical archive paths are used throughout; physical storage locations are never exposed.
-          </p>
-        </section>
-
-        <section className="public-stats compact-stats" aria-label="Archive statistics">
-          <div className="public-stat card-soft">
-            <span className="stat-label">Departments</span>
-            <span className="stat-value">{departments.length}</span>
-          </div>
-          <div className="public-stat card-soft">
-            <span className="stat-label">Active resources</span>
-            <span className="stat-value">{totalResources.toLocaleString("en-IN")}</span>
-          </div>
-        </section>
-
-        <section className="public-section-block">
-          <SectionHeader
-            eyebrow="Directory"
-            title="Browse by department"
-            description="Every registered department remains visible, including departments with zero migrated resources."
+      <main className="page" id="main-content">
+        <div className="container">
+          <PageHeader
+            eyebrow="Archive"
+            title="College archive"
+            description="Browse the migrated college archive by department, folder and resource. Logical archive paths are used throughout; physical storage locations are never exposed."
+            actions={
+              <>
+                <Link className="btn btn-secondary" href="/departments">
+                  <Building2 aria-hidden="true" />
+                  Department pages
+                </Link>
+                <Link className="btn btn-secondary" href="/search">
+                  <Search aria-hidden="true" />
+                  Search resources
+                </Link>
+              </>
+            }
+            meta={
+              <>
+                <span className="badge">
+                  <Building2 aria-hidden="true" />
+                  {departments.length} departments
+                </span>
+                <span className="badge">
+                  <FileStack aria-hidden="true" />
+                  {formatCount(totalResources)} active resources
+                </span>
+                <span className="badge">{populated.length} with content</span>
+              </>
+            }
           />
-          <div className="public-department-grid">
-            {departments.map((department) => (
-              <Link
-                className="public-department-card"
-                href={`/archive/${department.slug}`}
-                key={department.slug}
-              >
-                <div className="public-department-card-top">
-                  <span className="public-department-code">{department.shortName}</span>
-                  <span className="public-department-arrow" aria-hidden="true">↗</span>
-                </div>
-                <h3>{department.name}</h3>
-                <p className="muted">{department.description}</p>
-                <div className="public-department-card-bottom">
-                  <span>{department.resourceCount.toLocaleString("en-IN")} resources</span>
-                  <span>{department.resourceCount === 0 ? "No archive yet" : "Browse archive"}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
 
-        <section className="public-quick-links">
-          <Link className="public-quick-link card-soft" href="/departments">
-            <span><span className="public-eyebrow">Directory</span><strong>Department pages</strong></span>
-            <span>→</span>
-          </Link>
-          <Link className="public-quick-link card-soft" href="/search">
-            <span><span className="public-eyebrow">Discovery</span><strong>Search the portal</strong></span>
-            <span>→</span>
-          </Link>
-          <Link className="public-quick-link card-soft" href="/">
-            <span><span className="public-eyebrow">Home</span><strong>Back to noticeboard</strong></span>
-            <span>→</span>
-          </Link>
-        </section>
+          <section className="section" aria-labelledby="archive-directory">
+            <SectionHeader
+              eyebrow="Directory"
+              title="Browse by department"
+              id="archive-directory"
+              description="Every registered department remains listed, including departments with zero migrated resources."
+            />
+            {departments.length === 0 ? (
+              <EmptyState
+                icon={Building2}
+                title="No departments registered"
+                description="The department registry is empty, so there is nothing to browse yet."
+              />
+            ) : (
+              <div className="department-grid">
+                {departments.map((department) => (
+                  <DepartmentCard
+                    key={department.slug}
+                    department={department}
+                    hrefBase="/archive"
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="section" aria-labelledby="archive-next">
+            <SectionHeader
+              eyebrow="Next"
+              title="Other ways in"
+              id="archive-next"
+            />
+            <div className="quick-access">
+              <Link className="quick-access-item" href="/departments">
+                <span className="quick-access-icon" aria-hidden="true">
+                  <Building2 />
+                </span>
+                <span className="quick-access-text">
+                  <span className="quick-access-title">Department pages</span>
+                  <span className="quick-access-hint">
+                    Notices and archive together, with department context
+                  </span>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </Link>
+              <Link className="quick-access-item" href="/search">
+                <span className="quick-access-icon" aria-hidden="true">
+                  <Search />
+                </span>
+                <span className="quick-access-text">
+                  <span className="quick-access-title">Search the portal</span>
+                  <span className="quick-access-hint">
+                    Find a specific file by name or legacy path
+                  </span>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </div>
+          </section>
+        </div>
       </main>
       <PublicFooter />
     </>

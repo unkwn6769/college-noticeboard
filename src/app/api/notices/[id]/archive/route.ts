@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { archiveNotice } from "@/src/lib/notices";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 export const runtime = "nodejs";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -12,5 +12,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     await archiveNotice(id, user.id);
     return NextResponse.json({ ok: true });
-  } catch (error) { return jsonError(error instanceof Error ? error.message : "Operation failed"); }
+  } catch (error) { return jsonError(publicErrorMessage(error, "Notice could not be archived. Please try again."), 400); }
 }

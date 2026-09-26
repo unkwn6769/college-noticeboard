@@ -1,6 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowDownUp,
+  ExternalLink,
+  FileUp,
+  FilterX,
+  RefreshCcw,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
+
+import PageHeader from "@/src/components/PageHeader";
+import StatusBadge from "@/src/components/StatusBadge";
+import EmptyState from "@/src/components/EmptyState";
+import ErrorState from "@/src/components/ErrorState";
+import FileIcon from "@/src/components/FileIcon";
+import { SkeletonRegion, SkeletonTable } from "@/src/components/Skeleton";
+import { useConfirm } from "@/src/components/ConfirmDialog";
+import { useToast } from "@/src/components/Toast";
+import { fileState, humanise } from "@/src/lib/status";
+import { fileTypeLabel, formatBytes, formatDateTime } from "@/src/lib/format";
 
 type FileRow = {
   id: string;
@@ -12,6 +33,7 @@ type FileRow = {
   origin_type?: "USER_UPLOAD" | "LEGACY_IMPORT";
   legacy_department?: string | null;
   legacy_relative_path?: string | null;
+  created_at: string;
 };
 
 type FileResponse = {
@@ -23,150 +45,196 @@ type FileResponse = {
 };
 
 const PAGE_SIZE = 50;
+const STATES = ["ACTIVE", "QUARANTINED", "STAGING", "PURGED"] as const;
+const ORIGINS = [
+  { value: "LEGACY_IMPORT", label: "Legacy archive" },
+  { value: "USER_UPLOAD", label: "User uploads" },
+] as const;
+
+const EMPTY: FileResponse = { files: [], page: 1, pageSize: PAGE_SIZE, total: 0, totalPages: 1 };
+
+/** Reads a safe message from an API response without surfacing driver text. */
+async function readError(response: Response, fallback: string): Promise<string> {
+  const body = await response.json().catch(() => null);
+  const message = body?.error;
+  return typeof message === "string" && message.trim() ? message : fallback;
+}
 
 export default function FilesPage() {
-  const [data, setData] = useState<FileResponse>({
-    files: [],
-    page: 1,
-    pageSize: PAGE_SIZE,
-    total: 0,
-    totalPages: 1,
-  });
+  const confirm = useConfirm();
+  const { toast, dismiss } = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
+  const [data, setData] = useState<FileResponse>(EMPTY);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [origin, setOrigin] = useState("");
   const [state, setState] = useState("");
   const [page, setPage] = useState(1);
-  const [msg, setMsg] = useState("");
-  const [loading, setLoading] = useState(true);
+
   const [departments, setDepartments] = useState<string[]>([]);
-  const input = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [replaceTarget, setReplaceTarget] = useState<FileRow | null>(null);
 
-  async function load(nextPage = page) {
-    setLoading(true);
+  const filtersActive = Boolean(search || department || origin || state);
 
-    const params = new URLSearchParams({
-      page: String(nextPage),
-      pageSize: String(PAGE_SIZE),
-    });
+  const load = useCallback(
+    async (nextPage: number, nextFilters?: { search?: string; department?: string; origin?: string; state?: string }) => {
+      setLoading(true);
+      const active = {
+        search: search,
+        department: department,
+        origin: origin,
+        state: state,
+        ...nextFilters,
+      };
 
-    if (search) params.set("search", search);
-    if (department) params.set("department", department);
-    if (origin) params.set("origin", origin);
-    if (state) params.set("state", state);
-
-    try {
-      const response = await fetch(`/api/files?${params.toString()}`, {
-        cache: "no-store",
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        pageSize: String(PAGE_SIZE),
       });
-      const result = await response.json();
+      if (active.search) params.set("search", active.search);
+      if (active.department) params.set("department", active.department);
+      if (active.origin) params.set("origin", active.origin);
+      if (active.state) params.set("state", active.state);
 
-      if (!response.ok) {
-        throw new Error(result.error ?? "Unable to load files");
+      try {
+        const response = await fetch(`/api/files?${params.toString()}`, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(await readError(response, "The file list could not be loaded."));
+        }
+        const result = await response.json();
+        setData(result);
+        setPage(result.page);
+        setLoadError("");
+      } catch (error) {
+        setData(EMPTY);
+        setLoadError(error instanceof Error ? error.message : "The file list could not be loaded.");
+      } finally {
+        setLoading(false);
       }
-
-      setData(result);
-      setPage(result.page);
-    } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Unable to load files");
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    [search, department, origin, state],
+  );
 
   useEffect(() => {
     void load(1);
-    // Filters are applied whenever the committed filter state changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, department, origin, state]);
+  }, [load]);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadDepartments() {
+    (async () => {
       try {
         const response = await fetch("/api/files/meta", { cache: "no-store" });
+        if (!response.ok) return;
         const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error ?? "Unable to load departments");
+        if (!cancelled && Array.isArray(result?.departments)) {
+          setDepartments(result.departments);
         }
-
-        if (!cancelled) {
-          setDepartments(result.departments ?? []);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setMsg(
-            error instanceof Error
-              ? error.message
-              : "Unable to load departments",
-          );
-        }
+      } catch {
+        // The department filter simply stays as "All departments".
       }
-    }
-
-    void loadDepartments();
-
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function upload(replaceId?: string) {
-    const file = input.current?.files?.[0];
-    if (!file) return;
-
-    setMsg("Uploading…");
-
-    const headers = {
-      "X-File-Name": encodeURIComponent(file.name),
-      "X-File-Size": String(file.size),
-      "Content-Type": file.type || "application/octet-stream",
-    };
-
-    const url = replaceId
-      ? `/api/files/${replaceId}/replace`
-      : "/api/files";
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: file,
+  async function sendUpload(file: File, replaceId?: string) {
+    setUploading(true);
+    setPendingId(replaceId ?? null);
+    const progressId = toast({
+      tone: "info",
+      title: replaceId ? `Replacing with ${file.name}…` : `Uploading ${file.name}…`,
+      duration: 0,
     });
 
-    const result = await response.json();
-
-    setMsg(
-      response.ok
-        ? `Success: ${result.fileId ?? replaceId}`
-        : (result.error ?? "Upload failed"),
-    );
-
-    if (input.current) input.current.value = "";
-    await load(page);
+    try {
+      const response = await fetch(replaceId ? `/api/files/${replaceId}/replace` : "/api/files", {
+        method: "POST",
+        headers: {
+          "X-File-Name": encodeURIComponent(file.name),
+          "X-File-Size": String(file.size),
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
+      });
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: replaceId ? "Replacement failed" : "Upload failed",
+          text: await readError(response, "The file was not stored."),
+        });
+        return;
+      }
+      toast({
+        tone: "success",
+        title: replaceId ? "File replaced" : "File uploaded",
+        text: file.name,
+      });
+      if (inputRef.current) inputRef.current.value = "";
+      if (replaceInputRef.current) replaceInputRef.current.value = "";
+      setReplaceTarget(null);
+      await load(page);
+    } catch {
+      toast({
+        tone: "danger",
+        title: "Could not reach the server",
+        text: `${file.name} was not uploaded. Nothing was changed.`,
+      });
+    } finally {
+      dismiss(progressId);
+      setUploading(false);
+      setPendingId(null);
+      setDragging(false);
+    }
   }
 
-  async function remove(id: string) {
-    const response = await fetch(`/api/files/${id}/delete`, {
-      method: "DELETE",
+  async function remove(file: FileRow) {
+    const ok = await confirm({
+      title: "Move this file to quarantine?",
+      subject: `${file.original_name} — ${formatBytes(file.size_bytes)}`,
+      consequence:
+        "The file stops being publicly downloadable and moves to the recycle bin. The bytes are retained until someone purges them, so this is reversible.",
+      confirmLabel: "Move to quarantine",
+      tone: "warning",
     });
-    const result = await response.json();
+    if (!ok) return;
 
-    setMsg(
-      response.ok
-        ? "File quarantined"
-        : (result.error ?? "Delete failed"),
-    );
-
-    await load(page);
+    setPendingId(file.id);
+    try {
+      const response = await fetch(`/api/files/${file.id}/delete`, { method: "DELETE" });
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: "The file was not quarantined",
+          text: await readError(response, "Delete failed."),
+        });
+        return;
+      }
+      toast({ tone: "success", title: "Moved to quarantine", text: file.original_name });
+      await load(page);
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was changed." });
+    } finally {
+      setPendingId(null);
+    }
   }
 
-  function applySearch(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function clearFilters() {
+    setSearch("");
+    setSearchInput("");
+    setDepartment("");
+    setOrigin("");
+    setState("");
     setPage(1);
-    setSearch(searchInput.trim());
   }
 
   const rangeStart = data.total === 0 ? 0 : (data.page - 1) * PAGE_SIZE + 1;
@@ -174,220 +242,467 @@ export default function FilesPage() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 20 }}>
-        <div>
-          <h1>Files & Archive</h1>
-          <p className="muted">
-            {loading
-              ? "Loading…"
-              : `${rangeStart.toLocaleString()}–${rangeEnd.toLocaleString()} of ${data.total.toLocaleString()} files`}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Content"
+        title="Files & archive"
+        description="Every file record the system holds, with its lifecycle state, origin and size. Uploads are streamed and checksummed before publication."
+        actions={
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => void load(page)}
+            disabled={loading}
+          >
+            <RefreshCcw aria-hidden="true" />
+            Refresh
+          </button>
+        }
+        meta={
+          <>
+            <span className="badge">
+              {loading
+                ? "Loading…"
+                : `${rangeStart.toLocaleString("en-IN")}–${rangeEnd.toLocaleString("en-IN")} of ${data.total.toLocaleString("en-IN")}`}
+            </span>
+            {filtersActive ? <span className="badge badge-info">Filters active</span> : null}
+          </>
+        }
+      />
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <form
-          onSubmit={applySearch}
-          className="admin-search-form"
+      <section className="form-section" aria-label="Upload a file">
+        <div
+          className="dropzone"
+          data-dragging={dragging}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files?.[0];
+            if (file && !uploading) void sendUpload(file);
+          }}
         >
-          <label>
-            <span className="muted">Search</span>
+          <span className="dropzone-icon" aria-hidden="true">
+            <Upload />
+          </span>
+          <p className="dropzone-title">Drop a file to upload</p>
+          <p className="dropzone-hint">
+            or choose a file below · staged, SHA-256 verified, then published atomically
+          </p>
+          <label className="file-field" style={{ width: "min(26rem, 100%)" }}>
+            <span className="sr-only">File to upload</span>
             <input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Filename or legacy path"
-              style={{ width: "100%" }}
+              ref={inputRef}
+              type="file"
+              disabled={uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void sendUpload(file);
+              }}
             />
           </label>
+          {uploading && !pendingId ? (
+            <p className="dropzone-hint row row-2">
+              <span className="spinner" aria-hidden="true" />
+              Uploading…
+            </p>
+          ) : null}
+        </div>
 
-          <label>
-            <span className="muted">Department</span>
-            <select
-              value={department}
-              onChange={(event) => {
-                setPage(1);
-                setDepartment(event.target.value);
-              }}
-              style={{ width: "100%" }}
-            >
-              <option value="">All departments</option>
-              {departments.map((value) => (
-                <option key={value} value={value}>
-                  {value.replace("-noticeboard", "")}
-                </option>
-              ))}
-            </select>
+        {replaceTarget ? (
+          <div
+            className="upload-item"
+            style={{ marginTop: "var(--space-3)", borderColor: "var(--primary-border)" }}
+          >
+            <span className="resource-icon" aria-hidden="true">
+              <ArrowDownUp />
+            </span>
+            <span className="upload-item-main">
+              <span className="upload-item-name">
+                Replacing {replaceTarget.original_name}
+              </span>
+              <span className="upload-item-meta">
+                The current version is retained; the new bytes become a new version.
+              </span>
+            </span>
+            <span className="row row-2">
+              <label className="file-field" style={{ width: "min(18rem, 60vw)" }}>
+                <span className="sr-only">Replacement file</span>
+                <input
+                  ref={replaceInputRef}
+                  type="file"
+                  disabled={uploading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void sendUpload(file, replaceTarget.id);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={uploading}
+                onClick={() => setReplaceTarget(null)}
+              >
+                Cancel
+              </button>
+            </span>
+          </div>
+        ) : null}
+      </section>
+
+      <form
+        className="filter-bar"
+        style={{ marginTop: "var(--space-5)" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setPage(1);
+          setSearch(searchInput.trim());
+        }}
+        role="search"
+        aria-label="Filter files"
+      >
+        <div className="field">
+          <label className="field-label" htmlFor="file-search">
+            Search
           </label>
+          <div className="search-field">
+            <Search aria-hidden="true" />
+            <input
+              id="file-search"
+              className="input"
+              type="search"
+              value={searchInput}
+              maxLength={100}
+              placeholder="File name or legacy path"
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+          </div>
+        </div>
 
-          <label>
-            <span className="muted">Source</span>
-            <select
-              value={origin}
-              onChange={(event) => {
-                setPage(1);
-                setOrigin(event.target.value);
-              }}
-              style={{ width: "100%" }}
-            >
-              <option value="">All sources</option>
-              <option value="LEGACY_IMPORT">Legacy archive</option>
-              <option value="USER_UPLOAD">User uploads</option>
-            </select>
+        <div className="field">
+          <label className="field-label" htmlFor="file-department">
+            Department
           </label>
+          <select
+            id="file-department"
+            className="select"
+            value={department}
+            onChange={(event) => {
+              setPage(1);
+              setDepartment(event.target.value);
+            }}
+          >
+            <option value="">All departments</option>
+            {departments.map((value) => (
+              <option key={value} value={value}>
+                {value.replace("-noticeboard", "")}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          <label>
-            <span className="muted">State</span>
-            <select
-              value={state}
-              onChange={(event) => {
-                setPage(1);
-                setState(event.target.value);
-              }}
-              style={{ width: "100%" }}
-            >
-              <option value="">All states</option>
-              <option value="ACTIVE">Active</option>
-              <option value="QUARANTINED">Quarantined</option>
-              <option value="STAGING">Staging</option>
-              <option value="PURGED">Purged</option>
-            </select>
+        <div className="field">
+          <label className="field-label" htmlFor="file-origin">
+            Source
           </label>
+          <select
+            id="file-origin"
+            className="select"
+            value={origin}
+            onChange={(event) => {
+              setPage(1);
+              setOrigin(event.target.value);
+            }}
+          >
+            <option value="">All sources</option>
+            {ORIGINS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
+        <div className="field">
+          <label className="field-label" htmlFor="file-state">
+            State
+          </label>
+          <select
+            id="file-state"
+            className="select"
+            value={state}
+            onChange={(event) => {
+              setPage(1);
+              setState(event.target.value);
+            }}
+          >
+            <option value="">All states</option>
+            {STATES.map((option) => (
+              <option key={option} value={option}>
+                {humanise(option)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-bar-actions">
           <button className="btn" type="submit">
+            <Search aria-hidden="true" />
             Search
           </button>
-        </form>
-
-        <div className="actions" style={{ marginTop: 12 }}>
-          <input ref={input} type="file" />
-          <button className="btn secondary" onClick={() => upload()}>
-            Upload
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={!filtersActive}
+            onClick={clearFilters}
+          >
+            <FilterX aria-hidden="true" />
+            Clear filters
           </button>
-          {msg && <span className="muted">{msg}</span>}
         </div>
-      </div>
+      </form>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Source</th>
-              <th>Department</th>
-              <th>Type</th>
-              <th>Size</th>
-              <th>State</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {data.files.map((file) => (
-              <tr key={file.id}>
-                <td>
-                  <div>{file.original_name}</div>
-                  {file.legacy_relative_path && (
-                    <div className="muted" style={{ fontSize: 12, maxWidth: 480, overflowWrap: "anywhere" }}>
-                      {file.legacy_relative_path}
-                    </div>
-                  )}
-                </td>
-
-                <td>
-                  <span className="badge">
-                    {file.origin_type === "LEGACY_IMPORT" ? "Legacy" : "Upload"}
-                  </span>
-                </td>
-
-                <td>
-                  {file.legacy_department
-                    ? file.legacy_department.replace("-noticeboard", "")
-                    : "—"}
-                </td>
-
-                <td>{file.mime_type}</td>
-
-                <td>{Number(file.size_bytes).toLocaleString()} B</td>
-
-                <td>
-                  <span className="badge">
-                    {file.state} · v{file.version_number}
-                  </span>
-                </td>
-
-                <td>
-                  {file.state === "ACTIVE" && (
-                    <div className="actions">
-                      <a
-                        className="btn secondary"
-                        href={`/api/files/${file.id}`}
-                      >
-                        View
-                      </a>
-
-                      {file.origin_type !== "LEGACY_IMPORT" && (
-                        <>
+      {loadError ? (
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <ErrorState
+            title="The file list could not be loaded"
+            message={loadError}
+            onRetry={() => void load(page)}
+          />
+        </div>
+      ) : loading ? (
+        <div className="table-wrap" style={{ marginTop: "var(--space-5)" }}>
+          <div style={{ padding: "var(--space-4)" }}>
+            <SkeletonRegion label="Loading files.">
+              <SkeletonTable rows={8} columns={5} />
+            </SkeletonRegion>
+          </div>
+        </div>
+      ) : data.files.length === 0 ? (
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <EmptyState
+            icon={filtersActive ? Search : FileUp}
+            title={
+              filtersActive ? "No files match these filters" : "No file records exist yet"
+            }
+            description={
+              filtersActive
+                ? "Nothing matches the current filters. Clear them to see every file the system holds."
+                : "Nothing has been uploaded or imported yet. Drop a file into the upload area above to create the first record."
+            }
+            actions={
+              filtersActive ? (
+                <button type="button" className="btn" onClick={clearFilters}>
+                  <FilterX aria-hidden="true" />
+                  Clear filters
+                </button>
+              ) : null
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="table-wrap show-desktop" style={{ marginTop: "var(--space-5)" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">Department</th>
+                  <th scope="col">Type</th>
+                  <th scope="col" style={{ textAlign: "right" }}>
+                    Size
+                  </th>
+                  <th scope="col">State</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.files.map((file) => (
+                  <tr key={file.id}>
+                    <td>
+                      <div className="row row-2" style={{ alignItems: "flex-start" }}>
+                        <span className="resource-icon" style={{ width: 28, height: 28 }} aria-hidden="true">
+                          <FileIcon name={file.original_name} mimeType={file.mime_type} />
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="cell-primary" style={{ overflowWrap: "anywhere" }}>
+                            {file.original_name}
+                          </div>
+                          {file.legacy_relative_path ? (
+                            <div
+                              className="cell-sub mono"
+                              style={{ maxWidth: 380, overflowWrap: "anywhere" }}
+                            >
+                              {file.legacy_relative_path}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge">
+                        {file.origin_type === "LEGACY_IMPORT" ? "Legacy" : "Upload"}
+                      </span>
+                    </td>
+                    <td className="muted" style={{ fontSize: "var(--text-2xs)" }}>
+                      {file.legacy_department
+                        ? file.legacy_department.replace("-noticeboard", "")
+                        : "—"}
+                    </td>
+                    <td className="muted" style={{ fontSize: "var(--text-2xs)" }}>
+                      {fileTypeLabel(file.original_name, file.mime_type)}
+                    </td>
+                    <td className="num muted" style={{ fontSize: "var(--text-2xs)" }}>
+                      {formatBytes(file.size_bytes)}
+                    </td>
+                    <td>
+                      <StatusBadge
+                        descriptor={fileState(file.state)}
+                        title={`Version ${file.version_number}`}
+                      />
+                      <span className="cell-sub">v{file.version_number}</span>
+                    </td>
+                    <td className="actions-cell">
+                      <div className="actions">
+                        <a
+                          className="btn btn-ghost btn-sm"
+                          href={`/api/files/${file.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <ExternalLink aria-hidden="true" />
+                          View
+                        </a>
+                        {file.state === "ACTIVE" && file.origin_type !== "LEGACY_IMPORT" ? (
                           <button
-                            className="btn secondary"
-                            onClick={() => upload(file.id)}
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={uploading}
+                            onClick={() => setReplaceTarget(file)}
                           >
+                            <ArrowDownUp aria-hidden="true" />
                             Replace
                           </button>
-
+                        ) : null}
+                        {file.state === "ACTIVE" ? (
                           <button
-                            className="btn danger"
-                            onClick={() => remove(file.id)}
+                            type="button"
+                            className="btn btn-danger-outline btn-sm"
+                            disabled={pendingId === file.id || uploading}
+                            onClick={() => void remove(file)}
                           >
-                            Delete
+                            <Trash2 aria-hidden="true" />
+                            {pendingId === file.id ? "Working…" : "Quarantine"}
                           </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <ul className="data-list show-mobile" style={{ listStyle: "none", padding: 0, marginTop: "var(--space-5)" }}>
+            {data.files.map((file) => (
+              <li className="data-list-item" key={file.id}>
+                <div className="data-list-head">
+                  <div className="row row-2" style={{ minWidth: 0, alignItems: "flex-start" }}>
+                    <span className="resource-icon" style={{ width: 28, height: 28 }} aria-hidden="true">
+                      <FileIcon name={file.original_name} mimeType={file.mime_type} />
+                    </span>
+                    <span className="data-list-title">{file.original_name}</span>
+                  </div>
+                  <StatusBadge descriptor={fileState(file.state)} />
+                </div>
+                <dl className="data-list-meta">
+                  <div>
+                    <dt>Size</dt>
+                    <dd>{formatBytes(file.size_bytes)}</dd>
+                  </div>
+                  <div>
+                    <dt>Type</dt>
+                    <dd>{fileTypeLabel(file.original_name, file.mime_type)}</dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd>{file.origin_type === "LEGACY_IMPORT" ? "Legacy" : "Upload"}</dd>
+                  </div>
+                  <div>
+                    <dt>Added</dt>
+                    <dd>{formatDateTime(file.created_at)}</dd>
+                  </div>
+                </dl>
+                <div className="data-list-actions">
+                  <a
+                    className="btn btn-ghost btn-sm"
+                    href={`/api/files/${file.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink aria-hidden="true" />
+                    View
+                  </a>
+                  {file.state === "ACTIVE" && file.origin_type !== "LEGACY_IMPORT" ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={uploading}
+                      onClick={() => setReplaceTarget(file)}
+                    >
+                      Replace
+                    </button>
+                  ) : null}
+                  {file.state === "ACTIVE" ? (
+                    <button
+                      type="button"
+                      className="btn btn-danger-outline btn-sm"
+                      disabled={pendingId === file.id || uploading}
+                      onClick={() => void remove(file)}
+                    >
+                      Quarantine
+                    </button>
+                  ) : null}
+                </div>
+              </li>
             ))}
+          </ul>
 
-            {!loading && data.files.length === 0 && (
-              <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: 32 }}>
-                  No files match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div
-        className="actions"
-        style={{
-          justifyContent: "center",
-          marginTop: 20,
-          gap: 12,
-        }}
-      >
-        <button
-          className="btn secondary"
-          disabled={loading || page <= 1}
-          onClick={() => void load(page - 1)}
-        >
-          ← Previous
-        </button>
-
-        <span className="muted">
-          Page {data.page.toLocaleString()} of{" "}
-          {data.totalPages.toLocaleString()}
-        </span>
-
-        <button
-          className="btn secondary"
-          disabled={loading || page >= data.totalPages}
-          onClick={() => void load(page + 1)}
-        >
-          Next →
-        </button>
-      </div>
+          <nav className="pagination" aria-label="File pagination">
+            <p className="pagination-info">
+              Showing {rangeStart.toLocaleString("en-IN")}–
+              {rangeEnd.toLocaleString("en-IN")} of {data.total.toLocaleString("en-IN")} files
+            </p>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={loading || page <= 1}
+                onClick={() => void load(page - 1)}
+              >
+                Previous
+              </button>
+              <span className="pagination-page">
+                Page {data.page} of {data.totalPages}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={loading || page >= data.totalPages}
+                onClick={() => void load(page + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </nav>
+        </>
+      )}
     </>
   );
 }

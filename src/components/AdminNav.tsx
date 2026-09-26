@@ -1,6 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
+
+const ADMIN_LINKS = [
+  { href: "/admin", label: "Dashboard", exact: true },
+  { href: "/admin/notices", label: "Notices", exact: false },
+  { href: "/admin/files", label: "Files", exact: false },
+  { href: "/admin/recycle-bin", label: "Recycle Bin", exact: false },
+  { href: "/admin/audit", label: "Audit", exact: false },
+  { href: "/admin/storage", label: "Storage", exact: false },
+  { href: "/admin/integrity", label: "Integrity", exact: false },
+  { href: "/admin/scanner", label: "Scanner", exact: false },
+] as const;
 
 export default function AdminNav() {
   const router = useRouter();
@@ -26,41 +38,56 @@ export default function AdminNav() {
     router.refresh();
   }
 
-  function isActive(href: string) {
-    return pathname === href || pathname.startsWith(href + "/");
+  function isActive(href: string, exact: boolean) {
+    if (exact) return pathname === href;
+    return pathname === href || pathname.startsWith(`${href}/`);
   }
 
   return (
     <header className="topbar">
       <div className="container topbar-inner">
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <a className="brand" href="/admin">
+          <Link className="brand" href="/admin">
             <span style={{ opacity: 0.6, fontSize: 12, fontWeight: 600, marginRight: 6 }}>Admin</span>
             Noticeboard
-          </a>
+          </Link>
         </div>
 
         <button
           className="admin-nav-toggle"
           aria-label="Toggle navigation"
+          aria-expanded={mobileOpen}
+          aria-controls="admin-primary-nav"
           onClick={() => setMobileOpen((v) => !v)}
         >
           ☰
         </button>
 
-        <nav className={`nav admin-nav${mobileOpen ? " open" : ""}`} aria-label="Admin navigation">
-          <a href="/admin" className={isActive("/admin") && pathname === "/admin" ? "nav-active" : ""}>Dashboard</a>
-          <a href="/admin/notices" className={isActive("/admin/notices") ? "nav-active" : ""}>Notices</a>
-          <a href="/admin/files" className={isActive("/admin/files") ? "nav-active" : ""}>Files</a>
-          <a href="/admin/recycle-bin" className={isActive("/admin/recycle-bin") ? "nav-active" : ""}>Recycle Bin</a>
-          <a href="/admin/audit" className={isActive("/admin/audit") ? "nav-active" : ""}>Audit</a>
-          <a href="/admin/storage" className={isActive("/admin/storage") ? "nav-active" : ""}>Storage</a>
-          <a href="/admin/integrity" className={isActive("/admin/integrity") ? "nav-active" : ""}>Integrity</a>
-          <a href="/admin/scanner" className={isActive("/admin/scanner") ? "nav-active" : ""}>Scanner</a>
+        <nav
+          id="admin-primary-nav"
+          className={`nav admin-nav${mobileOpen ? " open" : ""}`}
+          aria-label="Admin navigation"
+        >
+          {ADMIN_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={isActive(link.href, link.exact) ? "nav-active" : undefined}
+              aria-current={isActive(link.href, link.exact) ? "page" : undefined}
+            >
+              {link.label}
+            </Link>
+          ))}
           {isOwner && (
-            <a href="/admin/users" className={isActive("/admin/users") ? "nav-active" : ""}>Users</a>
+            <Link
+              href="/admin/users"
+              className={isActive("/admin/users", false) ? "nav-active" : undefined}
+              aria-current={isActive("/admin/users", false) ? "page" : undefined}
+            >
+              Users
+            </Link>
           )}
-          <a href="/" target="_blank" rel="noreferrer" style={{ opacity: 0.7 }}>Public ↗</a>
+          <Link href="/" target="_blank" rel="noreferrer" style={{ opacity: 0.7 }}>Public ↗</Link>
           <button className="btn secondary" onClick={logout} style={{ marginLeft: 4 }}>
             Logout
           </button>

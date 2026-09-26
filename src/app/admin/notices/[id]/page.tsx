@@ -1,8 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  ExternalLink,
+  FileUp,
+  Paperclip,
+  Pin,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
+
+import PageHeader from "@/src/components/PageHeader";
+import Breadcrumbs from "@/src/components/Breadcrumbs";
+import StatusBadge from "@/src/components/StatusBadge";
+import ErrorState from "@/src/components/ErrorState";
+import EmptyState from "@/src/components/EmptyState";
+import FileIcon from "@/src/components/FileIcon";
+import { SkeletonRegion, Skeleton, SkeletonText } from "@/src/components/Skeleton";
+import { useConfirm } from "@/src/components/ConfirmDialog";
+import { useToast } from "@/src/components/Toast";
 import { DEPARTMENTS } from "@/src/lib/department-registry";
+import { noticeStatus, fileState } from "@/src/lib/status";
+import {
+  departmentLabel,
+  fileTypeLabel,
+  formatBytes,
+  formatDateTime,
+} from "@/src/lib/format";
 
 type NoticeState = {
   title: string;
@@ -26,164 +54,149 @@ type AttachmentState = {
   state: string;
 };
 
-function formatBytes(value: string) {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes < 0) return `${value} B`;
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let amount = bytes;
-  let unitIndex = 0;
-  while (amount >= 1024 && unitIndex < units.length - 1) {
-    amount /= 1024;
-    unitIndex += 1;
-  }
-  return `${amount >= 10 || unitIndex === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unitIndex]}`;
+const MAX_TITLE = 200;
+const MAX_BODY = 20000;
+
+/** Reads a safe message from an API response without surfacing driver text. */
+async function readError(response: Response, fallback: string): Promise<string> {
+  const body = await response.json().catch(() => null);
+  const message = body?.error;
+  return typeof message === "string" && message.trim() ? message : fallback;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Draft",
-  PUBLISHED: "Published",
-  ARCHIVED: "Archived",
-};
-
-const STATUS_CLASS: Record<string, string> = {
-  DRAFT: "badge badge-draft",
-  PUBLISHED: "badge badge-published",
-  ARCHIVED: "badge badge-archived",
-};
 
 export default function EditNoticePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [attachments, setAttachments] = useState<AttachmentState[]>([]);
   const [existingFileId, setExistingFileId] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [acting, setActing] = useState("");
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-  async function loadAttachments() {
+  const loadAttachments = useCallback(async () => {
     const response = await fetch(`/api/notices/${params.id}/attachments`, {
       cache: "no-store",
     });
+    if (!response.ok) throw new Error(await readError(response, "Unable to load attachments."));
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Unable to load attachments");
-    setAttachments(data.attachments ?? []);
-  }
+    setAttachments(Array.isArray(data?.attachments) ? data.attachments : []);
+  }, [params.id]);
 
   useEffect(() => {
     let cancelled = false;
-
     async function load() {
       try {
         const [noticeResponse, attachmentResponse] = await Promise.all([
           fetch(`/api/notices/${params.id}`, { cache: "no-store" }),
           fetch(`/api/notices/${params.id}/attachments`, { cache: "no-store" }),
         ]);
-
+        if (!noticeResponse.ok) {
+          throw new Error(await readError(noticeResponse, "This notice could not be loaded."));
+        }
+        if (!attachmentResponse.ok) {
+          throw new Error(await readError(attachmentResponse, "Unable to load attachments."));
+        }
         const noticeData = await noticeResponse.json();
         const attachmentData = await attachmentResponse.json();
-
-        if (!noticeResponse.ok) throw new Error(noticeData.error ?? "Not found");
-        if (!attachmentResponse.ok) throw new Error(attachmentData.error ?? "Unable to load attachments");
-
+        if (cancelled) return;
+        setNotice(noticeData.notice);
+        setAttachments(Array.isArray(attachmentData?.attachments) ? attachmentData.attachments : []);
+        setLoadError("");
+      } catch (error) {
         if (!cancelled) {
-          setNotice(noticeData.notice);
-          setAttachments(attachmentData.attachments ?? []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "Unable to load notice");
+          setLoadError(error instanceof Error ? error.message : "Unable to load this notice.");
         }
       }
     }
-
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
-  if (loadError) {
-    return (
-      <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
-        <h2>Unable to load notice</h2>
-        <p className="alert">{loadError}</p>
-        <a className="btn secondary" href="/admin/notices">Back to notices</a>
-      </div>
-    );
-  }
-
-  if (!notice) {
-    return (
-      <div className="loading-state">
-        <div className="loading-spinner" />
-        <p className="muted">Loading notice…</p>
-      </div>
-    );
-  }
-
-  async function save() {
+  async function submitForm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const current = notice;
     if (!current) return;
     setSaving(true);
-    setError("");
-    setSuccess("");
 
-    const response = await fetch(`/api/notices/${params.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: current.title,
-        body: current.body,
-        department: current.department,
-        category: current.category,
-        isPinned: current.is_pinned,
-      }),
-    });
-
-    const data = await response.json();
-    setSaving(false);
-    if (!response.ok) {
-      setError(data.error ?? "Save failed");
-    } else {
-      setSuccess("Notice saved successfully.");
-      setTimeout(() => setSuccess(""), 3000);
+    try {
+      const response = await fetch(`/api/notices/${params.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: current.title,
+          body: current.body,
+          department: current.department,
+          category: current.category,
+          isPinned: current.is_pinned,
+        }),
+      });
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: "The notice was not saved",
+          text: await readError(response, "Save failed."),
+        });
+        return;
+      }
+      toast({ tone: "success", title: "Notice saved" });
+      setNotice((value) => (value ? { ...value, updated_at: new Date().toISOString() } : value));
+    } catch {
+      toast({
+        tone: "danger",
+        title: "Could not reach the server",
+        text: "The notice was not saved.",
+      });
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function act(action: string, label: string) {
-    if (!window.confirm(`${label} this notice?`)) return;
-
-    setError("");
-    setSuccess("");
-    const response = await fetch(`/api/notices/${params.id}/${action}`, {
-      method: "POST",
+  async function act(action: "publish" | "archive", label: string) {
+    const ok = await confirm({
+      title: `${label} this notice?`,
+      subject: notice?.title,
+      consequence:
+        action === "publish"
+          ? "The notice becomes visible on the public noticeboard immediately."
+          : "The notice is withdrawn from the public noticeboard. It stays in the system and can be restored.",
+      confirmLabel: label,
     });
+    if (!ok) return;
 
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error ?? "Operation failed");
-      return;
+    setActing(action);
+    try {
+      const response = await fetch(`/api/notices/${params.id}/${action}`, { method: "POST" });
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: `Notice was not ${action === "publish" ? "published" : "archived"}`,
+          text: await readError(response, "The operation failed."),
+        });
+        return;
+      }
+      const refreshed = await fetch(`/api/notices/${params.id}`, { cache: "no-store" });
+      const data = await refreshed.json();
+      setNotice(data.notice);
+      toast({ tone: "success", title: `Notice ${action === "publish" ? "published" : "archived"}` });
+      void loadAttachments().catch(() => undefined);
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was changed." });
+    } finally {
+      setActing("");
     }
-
-    const refreshed = await fetch(`/api/notices/${params.id}`, { cache: "no-store" });
-    const refreshedData = await refreshed.json();
-    setNotice(refreshedData.notice);
-    setSuccess(`Notice ${label.toLowerCase()}d.`);
-    setTimeout(() => setSuccess(""), 3000);
-    void loadAttachments();
   }
 
-  async function uploadAndAttach() {
-    const file = fileInput.current?.files?.[0];
-    if (!file) { setError("Choose a file first."); return; }
-
+  async function uploadAndAttach(file: File) {
     setAttachmentBusy(true);
-    setError("");
-
     try {
       const uploadResponse = await fetch("/api/files", {
         method: "POST",
@@ -194,26 +207,38 @@ export default function EditNoticePage() {
         },
         body: file,
       });
-
+      if (!uploadResponse.ok) {
+        toast({
+          tone: "danger",
+          title: "Upload failed",
+          text: await readError(uploadResponse, "The file was not uploaded."),
+        });
+        return;
+      }
       const uploadData = await uploadResponse.json();
-      if (!uploadResponse.ok) throw new Error(uploadData.error ?? "File upload failed");
 
       const attachmentResponse = await fetch(`/api/notices/${params.id}/attachments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId: uploadData.fileId }),
       });
-
-      const attachmentData = await attachmentResponse.json();
       if (!attachmentResponse.ok) {
-        await fetch(`/api/files/${uploadData.fileId}/delete`, { method: "DELETE" }).catch(() => undefined);
-        throw new Error(attachmentData.error ?? "Uploaded file could not be attached");
+        // Roll the orphaned upload back to quarantine so it is not stranded.
+        await fetch(`/api/files/${uploadData.fileId}/delete`, { method: "DELETE" }).catch(
+          () => undefined,
+        );
+        toast({
+          tone: "danger",
+          title: "The file could not be attached",
+          text: await readError(attachmentResponse, "The upload was rolled back to quarantine."),
+        });
+        return;
       }
 
       setAttachments((current) => [
         ...current,
         {
-          id: attachmentData.attachmentId,
+          id: `pending-${uploadData.fileId}`,
           file_id: uploadData.fileId,
           original_name: file.name,
           mime_type: file.type || "application/octet-stream",
@@ -221,284 +246,494 @@ export default function EditNoticePage() {
           state: "ACTIVE",
         },
       ]);
-
       if (fileInput.current) fileInput.current.value = "";
-      setSuccess("File uploaded and attached.");
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Attachment upload failed");
+      toast({ tone: "success", title: "File attached", text: file.name });
+      await loadAttachments();
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was attached." });
     } finally {
       setAttachmentBusy(false);
+      setDragging(false);
     }
   }
 
   async function attachExistingFile() {
     const fileId = existingFileId.trim();
-    if (!fileId) { setError("Enter an existing file UUID."); return; }
-
+    if (!fileId) {
+      toast({ tone: "warning", title: "Enter a file UUID first" });
+      return;
+    }
     setAttachmentBusy(true);
-    setError("");
-
     try {
       const response = await fetch(`/api/notices/${params.id}/attachments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId }),
       });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Unable to attach file");
-
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: "Could not attach that file",
+          text: await readError(response, "Check the UUID and try again."),
+        });
+        return;
+      }
       setExistingFileId("");
       await loadAttachments();
-      setSuccess("File attached.");
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (attachError) {
-      setError(attachError instanceof Error ? attachError.message : "Unable to attach file");
+      toast({ tone: "success", title: "File attached" });
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was attached." });
     } finally {
       setAttachmentBusy(false);
     }
   }
 
-  async function removeAttachment(attachmentId: string) {
-    if (!window.confirm("Remove this attachment from the notice? The file record is not deleted.")) return;
+  async function removeAttachment(attachment: AttachmentState) {
+    const ok = await confirm({
+      title: "Remove this attachment?",
+      subject: attachment.original_name,
+      consequence:
+        "The link between the notice and the file is removed. The file itself is not deleted and remains in the file library.",
+      confirmLabel: "Remove attachment",
+    });
+    if (!ok) return;
 
     setAttachmentBusy(true);
-    setError("");
-
     try {
-      const response = await fetch(`/api/notices/${params.id}/attachments/${attachmentId}`, {
+      const response = await fetch(`/api/notices/${params.id}/attachments/${attachment.id}`, {
         method: "DELETE",
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Unable to remove attachment");
-      setAttachments((current) => current.filter((a) => a.id !== attachmentId));
-    } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : "Unable to remove attachment");
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: "Could not remove the attachment",
+          text: await readError(response, "The attachment is unchanged."),
+        });
+        return;
+      }
+      await loadAttachments();
+      toast({ tone: "success", title: "Attachment removed" });
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was removed." });
     } finally {
       setAttachmentBusy(false);
     }
   }
 
   async function deleteNotice() {
-    if (!window.confirm("Permanently delete this notice? This cannot be undone.")) return;
-    if (!window.confirm("Are you absolutely sure? The notice will be moved to the recycle bin.")) return;
+    const ok = await confirm({
+      title: "Delete this notice?",
+      subject: notice?.title,
+      consequence:
+        "The notice is moved to the recycle bin and disappears from the public noticeboard. An owner can restore it from the recycle bin, but deleting is not a publishable state.",
+      confirmLabel: "Move to recycle bin",
+      tone: "danger",
+    });
+    if (!ok) return;
 
-    const response = await fetch(`/api/notices/${params.id}`, { method: "DELETE" });
-    if (response.ok) {
+    setActing("delete");
+    try {
+      const response = await fetch(`/api/notices/${params.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        toast({
+          tone: "danger",
+          title: "The notice was not deleted",
+          text: await readError(response, "Delete failed."),
+        });
+        return;
+      }
+      toast({ tone: "success", title: "Notice moved to the recycle bin" });
       router.push("/admin/notices");
-    } else {
-      const data = await response.json();
-      setError(data.error ?? "Delete failed");
+      router.refresh();
+    } catch {
+      toast({ tone: "danger", title: "Could not reach the server", text: "Nothing was deleted." });
+    } finally {
+      setActing("");
     }
   }
 
-  const deptName = notice.department
-    ? (DEPARTMENTS.find((d) => d.slug === notice.department)?.shortName ?? notice.department.replace("-noticeboard", ""))
-    : "College-wide";
+  if (loadError) {
+    return (
+      <ErrorState
+        title="This notice could not be loaded"
+        message={loadError}
+        actions={
+          <Link className="btn btn-secondary" href="/admin/notices">
+            Back to notices
+          </Link>
+        }
+      />
+    );
+  }
+
+  if (!notice) {
+    return (
+      <SkeletonRegion label="Loading the notice editor.">
+        <div className="page-header">
+          <div className="page-header-text">
+            <Skeleton width={90} height={12} />
+            <Skeleton width={220} height={30} />
+          </div>
+        </div>
+        <div className="form-section" aria-hidden="true">
+          <SkeletonText lines={2} />
+          <Skeleton height={40} />
+          <SkeletonText lines={4} />
+        </div>
+      </SkeletonRegion>
+    );
+  }
+
+  const status = noticeStatus(notice.status);
+  const published = notice.status === "PUBLISHED";
+  const busy = saving || attachmentBusy || acting !== "";
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Edit notice</h1>
-          <div className="page-header-meta">
-            <span className={STATUS_CLASS[notice.status] ?? "badge"}>{STATUS_LABEL[notice.status] ?? notice.status}</span>
-            {notice.is_pinned && <span className="badge badge-pinned">Pinned</span>}
-            <span className="muted" style={{ fontSize: 13 }}>{deptName}</span>
-            <span className="muted" style={{ fontSize: 13 }}>by {notice.author}</span>
-          </div>
-        </div>
-        <a className="btn secondary" href="/admin/notices">← Back</a>
-      </div>
+      <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: "Admin", href: "/admin" },
+              { label: "Notices", href: "/admin/notices" },
+              { label: "Edit notice" },
+            ]}
+          />
+        }
+        eyebrow="Content"
+        title={notice.title}
+        size="small"
+        meta={
+          <>
+            <StatusBadge descriptor={status} dot />
+            {notice.is_pinned ? (
+              <span className="badge badge-warning">
+                <Pin aria-hidden="true" />
+                Pinned
+              </span>
+            ) : null}
+            <span className="badge">
+              {departmentLabel(notice.department) ?? "College-wide"}
+            </span>
+            <span className="meta">by {notice.author}</span>
+          </>
+        }
+        actions={
+          <>
+            {published ? (
+              <a
+                className="btn btn-secondary btn-sm"
+                href={`/notices/${params.id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink aria-hidden="true" />
+                View public page
+              </a>
+            ) : null}
+            <Link className="btn btn-ghost btn-sm" href="/admin/notices">
+              <ArrowLeft aria-hidden="true" />
+              Back
+            </Link>
+          </>
+        }
+      />
 
-      {error && <div className="alert" role="alert">{error}</div>}
-      {success && <div className="alert-success" role="status">{success}</div>}
+      <form onSubmit={submitForm}>
+        <fieldset className="form-section" disabled={busy}>
+          <legend className="form-section-heading">Notice content</legend>
+          <p className="form-section-desc">
+            The public reading view preserves line breaks. Titles are limited to{" "}
+            {MAX_TITLE} characters and bodies to {MAX_BODY.toLocaleString("en-IN")}.
+          </p>
 
-      <div className="admin-section">
-        <div className="form">
-          <label>
-            Title
+          <div className="field">
+            <label className="field-label" htmlFor="edit-title">
+              Title
+              <span className="spacer" />
+              <span
+                className="field-optional"
+                style={{ textTransform: "none" }}
+              >
+                {MAX_TITLE - notice.title.length} left
+              </span>
+            </label>
             <input
+              id="edit-title"
+              className="input"
               value={notice.title}
-              onChange={(e) => setNotice({ ...notice, title: e.target.value })}
+              maxLength={MAX_TITLE}
               required
+              onChange={(event) => setNotice({ ...notice, title: event.target.value })}
             />
-          </label>
+          </div>
 
-          <label>
-            Department
-            <select
-              value={notice.department ?? ""}
-              onChange={(e) => setNotice({ ...notice, department: e.target.value || null })}
-            >
-              <option value="">College-wide / general</option>
-              {DEPARTMENTS.map((d) => (
-                <option key={d.slug} value={d.slug}>{d.shortName} — {d.name}</option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Category
-            <input
-              value={notice.category ?? ""}
-              maxLength={64}
-              placeholder="e.g. Academic, Event, Examination"
-              onChange={(e) => setNotice({ ...notice, category: e.target.value || null })}
+          <div className="field">
+            <label className="field-label" htmlFor="edit-body">
+              Body
+              <span className="spacer" />
+              <span className="field-optional" style={{ textTransform: "none" }}>
+                {MAX_BODY - notice.body.length} left
+              </span>
+            </label>
+            <textarea
+              id="edit-body"
+              className="textarea"
+              value={notice.body}
+              maxLength={MAX_BODY}
+              required
+              onChange={(event) => setNotice({ ...notice, body: event.target.value })}
             />
-          </label>
+          </div>
+        </fieldset>
 
-          <label className="checkbox-field">
+        <fieldset className="form-section" disabled={busy}>
+          <legend className="form-section-heading">Classification</legend>
+          <div className="form-grid-2">
+            <div className="field">
+              <label className="field-label" htmlFor="edit-department">
+                Department
+              </label>
+              <select
+                id="edit-department"
+                className="select"
+                value={notice.department ?? ""}
+                onChange={(event) =>
+                  setNotice({ ...notice, department: event.target.value || null })
+                }
+              >
+                <option value="">College-wide / general</option>
+                {DEPARTMENTS.map((department) => (
+                  <option key={department.slug} value={department.slug}>
+                    {department.shortName} — {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="edit-category">
+                Category
+                <span className="field-optional">Optional</span>
+              </label>
+              <input
+                id="edit-category"
+                className="input"
+                value={notice.category ?? ""}
+                maxLength={64}
+                placeholder="Academic, Examination, Event…"
+                onChange={(event) =>
+                  setNotice({ ...notice, category: event.target.value || null })
+                }
+              />
+            </div>
+          </div>
+
+          <label className="checkbox-field" htmlFor="edit-pinned">
             <input
+              id="edit-pinned"
               type="checkbox"
               checked={notice.is_pinned}
-              onChange={(e) => setNotice({ ...notice, is_pinned: e.target.checked })}
+              onChange={(event) => setNotice({ ...notice, is_pinned: event.target.checked })}
             />
-            Mark as important / pinned
+            <span>
+              <span className="checkbox-field-text">Mark as important</span>
+              <span className="checkbox-field-hint">
+                Important notices are listed first everywhere and carry an “Important”
+                badge.
+              </span>
+            </span>
           </label>
+        </fieldset>
 
-          <label>
-            Body
-            <textarea
-              value={notice.body}
-              onChange={(e) => setNotice({ ...notice, body: e.target.value })}
-              required
-            />
-          </label>
+        <div className="form-actions">
+          <button className="btn" type="submit" disabled={busy}>
+            {saving ? <span className="spinner" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            {saving ? "Saving…" : "Save changes"}
+          </button>
 
-          <div className="actions">
-            <button className="btn" onClick={save} disabled={saving || attachmentBusy}>
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-            {notice.status !== "PUBLISHED" && (
-              <button
-                className="btn secondary"
-                onClick={() => act("publish", "Publish")}
-                disabled={saving || attachmentBusy}
-              >
-                Publish
-              </button>
-            )}
-            {notice.status !== "ARCHIVED" && (
-              <button
-                className="btn secondary"
-                onClick={() => act("archive", "Archive")}
-                disabled={saving || attachmentBusy}
-              >
-                Archive
-              </button>
-            )}
-            {notice.status === "ARCHIVED" && (
-              <button
-                className="btn secondary"
-                onClick={() => act("publish", "Restore")}
-                disabled={saving || attachmentBusy}
-              >
-                Restore
-              </button>
-            )}
+          {published ? (
             <button
-              className="btn danger"
-              onClick={deleteNotice}
-              disabled={saving || attachmentBusy}
-              style={{ marginLeft: "auto" }}
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => void act("archive", "Archive")}
             >
-              Delete
+              {acting === "archive" ? <span className="spinner" aria-hidden="true" /> : null}
+              Archive
             </button>
-          </div>
-        </div>
-      </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => void act("publish", "Publish")}
+            >
+              {acting === "publish" ? <span className="spinner" aria-hidden="true" /> : null}
+              Publish
+            </button>
+          )}
 
-      <section className="admin-section card" style={{ marginTop: 28 }}>
-        <div className="actions" style={{ justifyContent: "space-between", marginBottom: 16 }}>
+          <span className="spacer" />
+
+          <button
+            type="button"
+            className="btn btn-danger-outline"
+            disabled={busy}
+            onClick={() => void deleteNotice()}
+          >
+            <Trash2 aria-hidden="true" />
+            Delete
+          </button>
+        </div>
+      </form>
+
+      <section className="form-section" style={{ marginTop: "var(--space-5)" }}>
+        <div className="admin-section-head">
           <div>
-            <h2 style={{ margin: "0 0 4px" }}>Attachments</h2>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              Upload a new file or attach an existing active file by UUID. Published notices expose active attachments publicly.
+            <h2 className="form-section-heading">
+              <Paperclip aria-hidden="true" style={{ width: 15, height: 15, display: "inline", verticalAlign: "-2px" }} />{" "}
+              Attachments
+            </h2>
+            <p className="form-section-desc">
+              Only active attachments on a published notice are visible to the public.
             </p>
           </div>
           <span className="badge">{attachments.length}</span>
         </div>
 
-        <div className="admin-attachment-upload">
-          <div className="actions">
-            <input ref={fileInput} type="file" disabled={attachmentBusy} />
-            <button
-              className="btn secondary"
-              onClick={uploadAndAttach}
-              disabled={attachmentBusy}
-            >
-              {attachmentBusy ? "Working…" : "Upload & attach"}
-            </button>
-          </div>
-
-          <div className="admin-attachment-existing">
+        <div
+          className="dropzone"
+          data-dragging={dragging}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files?.[0];
+            if (file) void uploadAndAttach(file);
+          }}
+        >
+          <span className="dropzone-icon" aria-hidden="true">
+            <FileUp />
+          </span>
+          <p className="dropzone-title">Drop a file here, or choose one below</p>
+          <p className="dropzone-hint">
+            Files are streamed to storage, checksummed, and published atomically.
+          </p>
+          <label className="file-field" style={{ width: "min(24rem, 100%)" }}>
+            <span className="sr-only">File to attach to this notice</span>
             <input
-              value={existingFileId}
-              onChange={(e) => setExistingFileId(e.target.value)}
-              placeholder="Existing file UUID"
-              aria-label="Existing file UUID"
+              ref={fileInput}
+              type="file"
               disabled={attachmentBusy}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadAndAttach(file);
+              }}
             />
-            <button
-              className="btn secondary"
-              onClick={attachExistingFile}
+          </label>
+          {attachmentBusy ? (
+            <p className="dropzone-hint row row-2" style={{ marginTop: 4 }}>
+              <span className="spinner" aria-hidden="true" />
+              Uploading and attaching…
+            </p>
+          ) : null}
+        </div>
+
+        <div className="form-grid-2" style={{ marginTop: "var(--space-4)" }}>
+          <div className="field">
+            <label className="field-label" htmlFor="existing-file-id">
+              Attach an existing file
+            </label>
+            <input
+              id="existing-file-id"
+              className="input mono"
+              value={existingFileId}
+              placeholder="File UUID"
               disabled={attachmentBusy}
+              onChange={(event) => setExistingFileId(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="field-hint">
+              Paste the file UUID from the Files page to link an existing active file.
+            </p>
+          </div>
+          <div className="field" style={{ justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={attachmentBusy || existingFileId.trim().length === 0}
+              onClick={() => void attachExistingFile()}
             >
-              Attach existing
+              Attach existing file
             </button>
           </div>
         </div>
 
-        <div className="admin-attachment-list" style={{ marginTop: 14 }}>
-          {attachments.map((attachment) => (
-            <div className="admin-attachment-row" key={attachment.id}>
-              <div>
-                <div className="admin-attachment-name">{attachment.original_name}</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-                  {attachment.mime_type} · {formatBytes(attachment.size_bytes)} ·{" "}
-                  <span className={attachment.state === "ACTIVE" ? "badge badge-published" : "badge"}
-                    style={{ fontSize: 11, padding: "2px 7px" }}>
-                    {attachment.state}
+        {attachments.length === 0 ? (
+          <EmptyState
+            compact
+            icon={Paperclip}
+            title="No attachments"
+            description="This notice has no supporting documents. Upload one above to make it downloadable from the public page."
+          />
+        ) : (
+          <ul className="stack stack-2" style={{ listStyle: "none", padding: 0, marginTop: "var(--space-4)" }}>
+            {attachments.map((attachment) => (
+              <li className="attachment" key={attachment.id}>
+                <span className="resource-icon" aria-hidden="true">
+                  <FileIcon
+                    name={attachment.original_name}
+                    mimeType={attachment.mime_type}
+                  />
+                </span>
+                <span className="attachment-main">
+                  <span className="attachment-name" title={attachment.original_name}>
+                    {attachment.original_name}
                   </span>
-                </div>
-                <div className="muted admin-attachment-id">File ID: {attachment.file_id}</div>
-              </div>
-
-              <div className="actions">
-                {attachment.state === "ACTIVE" && (
-                  <a
-                    className="btn secondary"
-                    href={`/api/files/${attachment.file_id}`}
-                    target="_blank"
-                    rel="noreferrer"
+                  <span className="attachment-meta">
+                    {fileTypeLabel(attachment.original_name, attachment.mime_type)} ·{" "}
+                    {formatBytes(attachment.size_bytes)} ·{" "}
+                    <StatusBadge descriptor={fileState(attachment.state)} />
+                  </span>
+                </span>
+                <span className="row row-2">
+                  {attachment.state === "ACTIVE" ? (
+                    <a
+                      className="btn btn-ghost btn-sm"
+                      href={`/api/files/${attachment.file_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink aria-hidden="true" />
+                      Open
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-danger-outline btn-sm"
+                    disabled={attachmentBusy}
+                    onClick={() => void removeAttachment(attachment)}
                   >
-                    Open
-                  </a>
-                )}
-                <button
-                  className="btn danger"
-                  onClick={() => removeAttachment(attachment.id)}
-                  disabled={attachmentBusy}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {attachments.length === 0 && (
-            <div className="empty-state-inline">
-              <span className="muted">No attachments linked to this notice.</span>
-            </div>
-          )}
-        </div>
+                    <X aria-hidden="true" />
+                    Remove
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <div className="muted" style={{ fontSize: 12, marginTop: 20 }}>
-        Created {new Date(notice.created_at).toLocaleString()}{notice.published_at ? ` · Published ${new Date(notice.published_at).toLocaleString()}` : ""} · Last updated {new Date(notice.updated_at).toLocaleString()}
-      </div>
+      <p className="meta" style={{ marginTop: "var(--space-5)" }}>
+        Created {formatDateTime(notice.created_at)}
+        {notice.published_at ? ` · Published ${formatDateTime(notice.published_at)}` : ""} ·
+        Last updated {formatDateTime(notice.updated_at)}
+      </p>
     </>
   );
 }

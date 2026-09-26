@@ -7,7 +7,7 @@ import { config } from "@/src/lib/config";
 import { sanitizeFilename, normalizeMimeType, assertSameOrigin } from "@/src/lib/security";
 import { publishNewFile, listFiles } from "@/src/lib/files";
 import { audit } from "@/src/lib/audit";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,9 +140,9 @@ export async function POST(request: Request) {
       await audit("FILE_UPLOADED", user.id, "file", fileId, { storageKey, sizeBytes: written.sizeBytes, mimeType });
       return NextResponse.json({ fileId, versionId, storageKey, sizeBytes: written.sizeBytes, sha256: written.sha256 }, { status: 201 });
     } catch (error) {
-      return jsonError(error instanceof Error ? error.message : "Upload failed", 400);
+      return jsonError(publicErrorMessage(error, "The upload could not be completed."), 400);
     }
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Upload failed", 400);
+    return jsonError(publicErrorMessage(error, "The upload could not be completed."), 400);
   }
 }

@@ -19,6 +19,8 @@
     "backup:db": "node scripts/backup-db.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
+    "lucide-react": "^1.48.0",
     "next": "^16.3.3",
     "pg": "^8.16.3",
     "react": "^19.2.0",

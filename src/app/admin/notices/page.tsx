@@ -1,95 +1,160 @@
 import Link from "next/link";
+import { Megaphone, Plus, Pin } from "lucide-react";
+
+import PageHeader from "@/src/components/PageHeader";
+import StatusBadge from "@/src/components/StatusBadge";
+import EmptyState from "@/src/components/EmptyState";
+import Breadcrumbs from "@/src/components/Breadcrumbs";
 import { listAdminNotices } from "@/src/lib/notices";
+import { noticeStatus } from "@/src/lib/status";
+import { departmentLabel, formatDate, formatDateTime } from "@/src/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Draft",
-  PUBLISHED: "Published",
-  ARCHIVED: "Archived",
-};
-
-const STATUS_CLASS: Record<string, string> = {
-  DRAFT: "badge badge-draft",
-  PUBLISHED: "badge badge-published",
-  ARCHIVED: "badge badge-archived",
+export const metadata = {
+  title: "Notices",
+  robots: { index: false, follow: false },
 };
 
 export default async function AdminNoticesPage() {
   const notices = await listAdminNotices();
 
-  const published = notices.filter((n) => n.status === "PUBLISHED").length;
-  const drafts = notices.filter((n) => n.status === "DRAFT").length;
-  const archived = notices.filter((n) => n.status === "ARCHIVED").length;
+  const published = notices.filter((notice) => notice.status === "PUBLISHED").length;
+  const drafts = notices.filter((notice) => notice.status === "DRAFT").length;
+  const archived = notices.filter((notice) => notice.status === "ARCHIVED").length;
+  const pinned = notices.filter((notice) => notice.is_pinned).length;
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Notices</h1>
-          <p className="muted">Create, edit and publish notices. {notices.length} total — {published} published, {drafts} draft, {archived} archived.</p>
-        </div>
-        <Link className="btn" href="/admin/notices/new">
-          + New notice
-        </Link>
-      </div>
+      <PageHeader
+        breadcrumbs={<Breadcrumbs items={[{ label: "Admin", href: "/admin" }, { label: "Notices" }]} />}
+        eyebrow="Content"
+        title="Notices"
+        description="Create, edit, publish and archive college notices. Only published notices are visible to the public."
+        actions={
+          <Link className="btn" href="/admin/notices/new">
+            <Plus aria-hidden="true" />
+            New notice
+          </Link>
+        }
+        meta={
+          <>
+            <span className="badge badge-success">
+              {published} published
+            </span>
+            <span className="badge">{drafts} draft</span>
+            <span className="badge badge-warning">{archived} archived</span>
+            {pinned > 0 ? (
+              <span className="badge">
+                <Pin aria-hidden="true" />
+                {pinned} pinned
+              </span>
+            ) : null}
+          </>
+        }
+      />
 
       {notices.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">📋</div>
-          <h2>No notices yet</h2>
-          <p className="muted">Create your first notice to get started.</p>
-          <Link className="btn" href="/admin/notices/new">Create notice</Link>
-        </div>
+        <EmptyState
+          icon={Megaphone}
+          title="No notices yet"
+          description="The noticeboard has no notices at all. Create a draft to get started — drafts stay private until you publish them."
+          actions={
+            <Link className="btn" href="/admin/notices/new">
+              <Plus aria-hidden="true" />
+              Create the first notice
+            </Link>
+          }
+        />
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Author</th>
-                <th>Updated</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {notices.map((n) => (
-                <tr key={n.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>
-                      {n.title}
-                      {n.is_pinned && (
-                        <span className="badge badge-pinned" style={{ marginLeft: 8 }}>Pinned</span>
-                      )}
-                    </div>
-                    {n.category && (
-                      <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{n.category}</div>
-                    )}
-                  </td>
-                  <td className="muted" style={{ fontSize: 13 }}>
-                    {n.department ? n.department.replace("-noticeboard", "").toUpperCase() : "College-wide"}
-                  </td>
-                  <td>
-                    <span className={STATUS_CLASS[n.status] ?? "badge"}>
-                      {STATUS_LABEL[n.status] ?? n.status}
-                    </span>
-                  </td>
-                  <td className="muted" style={{ fontSize: 13 }}>{n.author}</td>
-                  <td className="muted" style={{ fontSize: 13, whiteSpace: "nowrap" }}>
-                    {new Date(n.updated_at).toLocaleDateString()}
-                  </td>
-                  <td>
-                    <Link className="btn secondary" href={`/admin/notices/${n.id}`}>
-                      Edit
-                    </Link>
-                  </td>
+        <>
+          <div className="table-wrap show-desktop">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Title</th>
+                  <th scope="col">Department</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Author</th>
+                  <th scope="col">Updated</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {notices.map((notice) => (
+                  <tr key={notice.id}>
+                    <td>
+                      <div className="cell-primary">{notice.title}</div>
+                      {notice.category ? (
+                        <div className="cell-sub">{notice.category}</div>
+                      ) : null}
+                      {notice.is_pinned ? (
+                        <div style={{ marginTop: 4 }}>
+                          <span className="badge badge-warning">
+                            <Pin aria-hidden="true" />
+                            Pinned
+                          </span>
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="muted" style={{ fontSize: "var(--text-2xs)" }}>
+                      {departmentLabel(notice.department) ?? "College-wide"}
+                    </td>
+                    <td>
+                      <StatusBadge descriptor={noticeStatus(notice.status)} dot />
+                    </td>
+                    <td className="muted" style={{ fontSize: "var(--text-2xs)" }}>
+                      {notice.author}
+                    </td>
+                    <td className="muted nowrap" style={{ fontSize: "var(--text-2xs)" }}>
+                      {formatDate(notice.updated_at)}
+                    </td>
+                    <td className="actions-cell">
+                      <Link className="btn btn-secondary btn-sm" href={`/admin/notices/${notice.id}`}>
+                        Edit
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <ul className="data-list show-mobile" style={{ listStyle: "none", padding: 0 }}>
+            {notices.map((notice) => (
+              <li className="data-list-item" key={notice.id}>
+                <div className="data-list-head">
+                  <div style={{ minWidth: 0 }}>
+                    <p className="data-list-title">{notice.title}</p>
+                    <p className="cell-sub">{notice.category ?? "No category"}</p>
+                  </div>
+                  <StatusBadge descriptor={noticeStatus(notice.status)} dot />
+                </div>
+                <dl className="data-list-meta">
+                  <div>
+                    <dt>Department</dt>
+                    <dd>{departmentLabel(notice.department) ?? "College-wide"}</dd>
+                  </div>
+                  <div>
+                    <dt>Author</dt>
+                    <dd>{notice.author}</dd>
+                  </div>
+                  <div>
+                    <dt>Updated</dt>
+                    <dd>{formatDateTime(notice.updated_at)}</dd>
+                  </div>
+                </dl>
+                <div className="data-list-actions">
+                  <Link className="btn btn-secondary btn-sm" href={`/admin/notices/${notice.id}`}>
+                    Edit
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </>
   );

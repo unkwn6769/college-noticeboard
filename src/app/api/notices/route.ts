@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createNotice, listAdminNotices, listPublishedNotices } from "@/src/lib/notices";
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime="nodejs";
 
@@ -42,6 +42,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ id }, { status: 201 });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Create failed");
+    return jsonError(publicErrorMessage(error, "Notice could not be created. Please try again."), 400);
   }
 }

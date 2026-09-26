@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/src/lib/auth/session";
 import { getStorageEngine } from "@/src/lib/storage/engine";
 import { getDbPool } from "@/src/lib/db/pool";
 import { assertSameOrigin, assertUuid } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 import { detachFileFromNotice } from "@/src/lib/notice-attachments";
 
 export const runtime = "nodejs";
@@ -33,8 +33,9 @@ export async function DELETE(
     await detachFileFromNotice(id, attachmentId, user.id);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to remove attachment";
-    return jsonError(message, message === "NOTICE_ATTACHMENT_NOT_FOUND" ? 404 : 400);
+    const code = error instanceof Error ? error.message : "";
+    if (code === "NOTICE_ATTACHMENT_NOT_FOUND") return jsonError("Attachment not found.", 404);
+    return jsonError(publicErrorMessage(error, "The attachment could not be removed."), 400);
   }
 }
 
@@ -86,9 +87,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    return jsonError(
-      error instanceof Error ? error.message : "Download failed",
-      400,
-    );
+    return jsonError(publicErrorMessage(error, "The attachment could not be downloaded."), 400);
   }
 }

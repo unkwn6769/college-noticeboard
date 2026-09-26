@@ -6,7 +6,7 @@ import { getStorageEngine } from "@/src/lib/storage/engine";
 import { config } from "@/src/lib/config";
 import { sanitizeFilename, normalizeMimeType, assertSameOrigin } from "@/src/lib/security";
 import { replaceFile } from "@/src/lib/files";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime = "nodejs";
 
@@ -86,9 +86,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
       return NextResponse.json({ ok: true, versionNumber: result.versionNumber, storageKey, physicalCleanup: "pending" });
     } catch (error) {
-      return jsonError(error instanceof Error ? error.message : "Replacement failed", 400);
+      return jsonError(publicErrorMessage(error, "The file could not be replaced."), 400);
     }
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Replacement failed", 400);
+    return jsonError(publicErrorMessage(error, "The file could not be replaced."), 400);
   }
 }

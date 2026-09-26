@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/src/lib/auth/session";
 import { assertSameOrigin, assertUuid } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 import {
   attachFileToNotice,
   listNoticeAttachments,
@@ -37,10 +37,7 @@ export async function GET(
       attachments: await listNoticeAttachments(id, { publicOnly: false }),
     });
   } catch (error) {
-    return jsonError(
-      error instanceof Error ? error.message : "Unable to load attachments",
-      400,
-    );
+    return jsonError(publicErrorMessage(error, "Attachments could not be loaded."), 400);
   }
 }
 
@@ -68,7 +65,7 @@ export async function POST(
 
     return NextResponse.json({ attachmentId }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to attach file";
-    return jsonError(message, knownErrorStatus(message));
+    const message = publicErrorMessage(error, "The file could not be attached.");
+    return jsonError(message, knownErrorStatus(error instanceof Error ? error.message : ""));
   }
 }

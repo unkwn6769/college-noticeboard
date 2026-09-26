@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { restoreNotice, permanentlyDeleteNotice } from "@/src/lib/notices";
 import { requireAdmin } from "@/src/lib/auth/session";
 import { assertSameOrigin, assertUuid } from "@/src/lib/security";
-import { jsonError } from "@/src/lib/http";
+import { jsonError, publicErrorMessage } from "@/src/lib/http";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,7 @@ export async function POST(
     if (error instanceof Error && error.message === "NOTICE_NOT_IN_RECYCLE_BIN") {
       return jsonError("Notice not in recycle bin", 404);
     }
-    return jsonError(error instanceof Error ? error.message : "Restore failed");
+    return jsonError(publicErrorMessage(error, "The notice could not be restored."), 400);
   }
 }
 
@@ -46,6 +46,6 @@ export async function DELETE(
     if (error instanceof Error && error.message === "NOTICE_NOT_IN_RECYCLE_BIN") {
       return jsonError("Notice not in recycle bin", 404);
     }
-    return jsonError(error instanceof Error ? error.message : "Permanent delete failed");
+    return jsonError(publicErrorMessage(error, "The notice could not be permanently deleted."), 400);
   }
 }

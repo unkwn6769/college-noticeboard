@@ -297,17 +297,43 @@ Thirteen new tests, no existing test modified, skipped or weakened:
 
 ## 5. What is explicitly NOT VERIFIED
 
-- **No automated axe/Lighthouse pass exists.** Accessibility was verified by measured DOM
-  semantics and real keyboard interaction, not by an automated rules engine. The project's own
-  P9 record notes this gap and it still stands.
-- **No real-browser check on a physical iOS/Android device.** Viewport widths were emulated.
-- **No screen-reader run.** Landmark and state changes were verified as DOM/ARIA attributes,
-  not as spoken output.
-- **Upload, replace, quarantine, purge, publish and recycle-bin mutations were not exercised
-  end to end** in this phase. They were not touched by these changes; only their authorization
-  rejection paths were probed.
-- **The file corpus has no independent backup**, so a full environment restore is not
-  demonstrated. See §6 of the README.
+*Partly superseded by the closeout. See `P10_CLOSEOUT.md` for the current position of every
+item below; the two that were open when this was written have since been closed and are marked
+as such rather than deleted.*
+
+- ~~**No automated axe/Lighthouse pass exists.**~~ **CLOSED in the closeout.** axe-core was
+  installed and run over 98 page states — 22 routes at four widths, plus 10 modal states with the
+  navigation drawer and the command palette open. It reported 5 violations, 1 critical and 4
+  serious. Both were fixed at the source (a `<dl>` whose children were `<span>` on the scanner's
+  metric tiles, and a harness that could not reach the palette at 360px) and the rerun reports
+  **0 violations**, with no rule suppressed and no `aria` added to silence anything. See
+  `P10_CLOSEOUT.md` §1.
+- ~~**Upload, replace, quarantine, purge, publish and recycle-bin mutations were not exercised
+  end to end.**~~ **CLOSED in the closeout.** 50 checks against the live service using synthetic
+  data, covering the whole lifecycle and the unauthorized path for every mutation. This also
+  established that deletion is two-phase by design: the API answers `cleanupStatus: "pending"`
+  and `maintenance` performs the physical move, so restoring before maintenance has run correctly
+  fails with 409. See `P10_CLOSEOUT.md` §2.
+- **No screen-reader run.** Still open. No screen-reader runtime exists on this host — no
+  `orca`, `espeak`, `espeak-ng`, `festival`, `spd-say`, `accerciser`, and no at-spi2
+  packages or bus. The Chromium computed accessibility tree was inspected instead, which confirms
+  ARIA resolves into the platform tree but is **not** a screen-reader run.
+- **No physical-device check.** Still open. `systemd-detect-virt` reports `microsoft`; the
+  hardware model is *Virtual Machine*, with no `adb`, no iOS tooling and no USB bus. Viewport
+  widths were emulated.
+- **No independent off-host copy of the file corpus.** Still open, and now measured rather than
+  asserted: `/srv/noticeboard` is a 63 GB volume holding the 27 GB corpus with 33 GB free, and
+  the OS volume has 7.6 GB free, so a duplicate does not fit off-volume and a same-volume copy
+  would be neither independent nor safe. What *is* validated is that the live corpus is
+  complete and byte-exact against the database for all 47 900 ACTIVE objects
+  (`npm run verify:corpus`), and that a restored database can be served by the application
+  against that corpus — a 100 KB file came back matching the SHA-256 in the restored row. See
+  `P10_CLOSEOUT.md` §3.
+- **The 2026-09-25 database authentication failures have no established root cause.** The
+  mechanism is established from the PostgreSQL server log — SCRAM rejection for
+  `college_noticeboard_app` across a bounded ~7 hour window during P7/P8 development, last
+  occurrence 17:01:21, none since — but the cause cannot be determined without inspecting
+  credential history. See `P10_CLOSEOUT.md` §4.
 
 ---
 
@@ -342,3 +368,22 @@ rather than re-implemented.
 | `src/styles/components.css` | `.status-banner-text` wraps long tokens |
 | `infra/azure/nginx.conf` | brought in line with the installed configuration; HSTS documented |
 | `P10_PROGRESS.md` | this report |
+
+---
+
+## 7. Closeout status
+
+This document records P10 as it stood when that phase finished. The closeout that followed
+closed the two verification gaps that were open at the time, and investigated the historical log
+entries. It is recorded separately in **`P10_CLOSEOUT.md`**, which is the current source for
+accessibility, mutation verification, disaster recovery and the log review.
+
+| area | at the end of P10 | after closeout |
+|---|---|---|
+| automated accessibility | not run | **axe-core, 98 page states, 5 violations → 0** |
+| mutation verification | rejection paths only | **50/50 checks, full lifecycle + unauthorized** |
+| file-corpus integrity | 400-file sample | **all 47 900 ACTIVE objects, 28.2 GB, 0 discrepancies** |
+| database restore | scratch restore | **plus an application-level restore rehearsal** |
+| historical log errors | recorded, unexplained | **mechanism established; 42P18 resolved** |
+| GitHub CI | not executed | **run #19, conclusion success** |
+| repository state | 3 commits unpushed | **HEAD == origin/main, working tree clean** |

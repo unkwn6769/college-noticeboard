@@ -28,6 +28,15 @@ export async function POST(request: Request) {
     await audit("USER_LOGIN", user.id, "user", user.id);
     return response;
   } catch (error) {
-    return jsonError(error instanceof Error && error.message === "Origin check failed" ? error.message : "Login failed", 400);
+    // A rejected cross-origin submission is the caller's problem and stays a
+    // 4xx. Anything else — an unreadable body, an unreachable database, a
+    // driver error — is a fault on this side, and answering 400 for it made a
+    // database outage indistinguishable from a mistyped password to anyone
+    // watching the status codes. The message stays generic either way, so no
+    // backend detail is exposed to the caller.
+    if (error instanceof Error && error.message === "Origin check failed") {
+      return jsonError(error.message, 400);
+    }
+    return jsonError("Login is temporarily unavailable. Please try again.", 503);
   }
 }

@@ -5,7 +5,7 @@ import { withTransaction, getDbPool } from "@/src/lib/db/pool";
 import { audit } from "@/src/lib/audit";
 import { getStorageEngine, STORAGE_ROOT } from "@/src/lib/storage/engine";
 import { purgeFileBytes } from "@/src/lib/file-purge";
-import { jsonError, publicErrorMessage } from "@/src/lib/http";
+import { jsonError, publicErrorMessage, authorizationErrorStatus } from "@/src/lib/http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -86,7 +86,7 @@ export async function POST(
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return jsonError("Unauthorized", 401);
     if (error instanceof Error && error.message === "STATE_CHANGED") return jsonError("File state changed during restore", 409);
-    return jsonError(publicErrorMessage(error, "The file could not be restored."), 400);
+    return jsonError(publicErrorMessage(error, "The file could not be restored."), authorizationErrorStatus(error, 400));
   }
 }
 
@@ -165,6 +165,6 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return jsonError("Unauthorized", 401);
-    return jsonError(publicErrorMessage(error, "The file could not be purged."), 400);
+    return jsonError(publicErrorMessage(error, "The file could not be purged."), authorizationErrorStatus(error, 400));
   }
 }

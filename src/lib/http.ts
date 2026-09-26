@@ -67,3 +67,21 @@ export function publicErrorMessage(error: unknown, fallback: string): string {
   if (SAFE_MESSAGES.has(message)) return message;
   return fallback;
 }
+
+/**
+ * An authorization failure is not a client mistake, and reporting it as 400
+ * makes a rejected request indistinguishable from a malformed one to anything
+ * reading status codes — including the monitoring that tells an operator
+ * whether a route is being probed. `requireAdmin` and `requireOwner` both throw
+ * `UNAUTHORIZED`; a route passes its own 403 for a role check it performs
+ * itself, because "not signed in" and "role insufficient" are different facts.
+ */
+export function authorizationErrorStatus(error: unknown, fallback: number): number {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code: unknown }).code)
+      : error instanceof Error
+        ? error.message
+        : "";
+  return code === "UNAUTHORIZED" || code === "FORBIDDEN" ? 401 : fallback;
+}

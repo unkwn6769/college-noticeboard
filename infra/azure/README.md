@@ -10,8 +10,26 @@ This project is deployed on the existing Azure for Students Ubuntu VM rather tha
 - application user `college-noticeboard`
 - application root `/opt/college-noticeboard`
 - data root `/srv/noticeboard`
-- Nginx on port 80 (add TLS/443 before public production use)
+- Nginx terminating TLS for `college-noticeboard.duckdns.org` on 443, with a
+  Certbot-managed HTTP→HTTPS redirect for that host
 - systemd application service, hourly maintenance timer, and daily database backup timer
+
+### TLS state (verified 2026-09-26)
+
+TLS **is** enabled in production. It was added by Certbot after this document was
+first written, and the `nginx.conf` in this directory has now been brought in line
+with the configuration that is actually installed, including the TLS virtual host
+and `Strict-Transport-Security`, so a fresh install from this repository reproduces
+what is running.
+
+`/etc/nginx/sites-available/college-noticeboard` is rewritten by Certbot whenever a
+certificate is issued or renewed. After any `certbot` run, re-check that file
+against the copy in this directory; Certbot's edits are marked `# managed by Certbot`.
+
+The remaining security headers (`X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`, `Permissions-Policy`) are set by the application in
+`next.config.mjs` rather than by Nginx, so they also apply when port 3000 is reached
+directly on the loopback interface.
 
 ## First-time setup
 

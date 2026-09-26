@@ -42,8 +42,22 @@ The file API accepts a raw request body so large files can remain streamed rathe
 
 ## Production deployment
 
-This rebuild is prepared for the existing Azure for Students VM. See `infra/azure/README.md`. The hosting provider differs from the original OCI target, but the application/storage architecture remains unchanged.
+This rebuild is prepared for the existing Azure for Students VM. See `infra/azure/README.md`, which records the runtime, the TLS state and the first-time setup. The hosting provider differs from the original OCI target, but the application/storage architecture remains unchanged.
+
+`infra/azure/nginx.conf` mirrors the site configuration that is installed on the VM. The
+application itself is deployed with `npm run build` followed by
+`systemctl restart college-noticeboard.service`.
 
 ## Backups and disaster recovery
 
-`npm run backup:db` creates a compressed PostgreSQL custom-format dump on `/srv/noticeboard/backups` and verifies the dump with `pg_restore --list`. This provides database recoverability. It is not an independent backup of the complete file corpus; a full independent copy of a very large corpus is constrained by the available storage budget.
+`npm run backup:db` creates a compressed PostgreSQL custom-format dump on `/srv/noticeboard/backups` and verifies the dump with `pg_restore --list`. A daily timer runs it at 03:15 UTC and retains 14 days. This provides database recoverability. It is not an independent backup of the complete file corpus; a full independent copy of a very large corpus is constrained by the available storage budget.
+
+Restore is verified non-destructively rather than assumed. The procedure below was run on 2026-09-26 against the dump of that morning: the dump listed cleanly, it was restored into a **separate scratch database** (the live database was only read), all 10 tables were recreated, and row counts matched exactly for `files` (47 911), `file_versions` (47 915), `notices` (2), `legacy_scanner_items` (907) and `legacy_scanner_runs` (12). The three tables that differed — `users`, `audit_events` and `sessions` — differed only by rows this verification session itself created after 03:15, which is the expected behaviour of a point-in-time snapshot. The scratch database was then dropped.
+
+Separately, 400 randomly sampled `ACTIVE` file rows were checked against the bytes on the
+authoritative volume: every one matched its recorded size and SHA-256, with none missing. So a
+database restore is meaningful as long as `/srv/noticeboard` survives.
+
+**Not verified:** a full environment restore in which the application is pointed at a restored
+database, and any independent backup of the file corpus. Recovering from the loss of
+`/srv/noticeboard` itself is not covered by anything in this repository.
